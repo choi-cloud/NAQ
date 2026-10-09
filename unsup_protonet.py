@@ -16,65 +16,64 @@ from meta import ProtoNet
 
 
 def main(args, config, Data):
-    # Unsupervised Meta-learning
     Meta = ProtoNet(args, config, Data).to(device)
 
     valid_num, test_num = args.num_valid_tasks, args.num_downstream_tasks
 
-    # Sample a pool of episodes for training
     train_pool = [proto_task_generator(args, Data) for _ in range(args.epoch)]
 
-    # Sample a pool of Valid/Test tasks
     valid_pool, test_pool = downstream_task_generator(args, Data, args.n_way, args.k_shot_test)
 
-    # Define 'Empty Cans' to store valid/test accs
     valid_acc = []
     test_acc, test_stdev = [], []
 
     train_start = time.time()
-    for epoch, (id_spt, y_spt, id_query, y_query) in enumerate(train_pool):
-        epoch_start = time.time()
 
-        # ------------------------------<Training Phase>------------------------------#
+    progress_bar = tqdm(enumerate(train_pool), total=len(train_pool), desc="Training", dynamic_ncols=True)
+
+    for epoch, (id_spt, y_spt, id_query, y_query) in progress_bar:
         train_loss, train_acc = Meta(id_spt, y_spt.to(device), id_query, y_query.to(device))
 
-        # Report Training loss and acc
-        epoch_time = time.time() - epoch_start
-        print(f"Epoch {epoch}- Loss: {train_loss:.4f} Train Acc: {train_acc:.4f} / time_elapsed: {epoch_time:.4f} seconds")
+        progress_bar.set_postfix(loss=f"{train_loss:.4f}", train_acc=f"{train_acc:.4f}")
 
-        # -------------------------<Validation & Test Phase>-------------------------#
-        # Report Validation/Test acc by 160 episodes
         if (epoch + 1) % 160 == 0:
             val_temp, test_temp = [], []
-            # Validation for 50 validation tasks
+
             for id_spt, y_spt, id_query, y_query in valid_pool:
                 _, val_acc = Meta.fine_tuning(id_spt, y_spt.to(device), id_query, y_query.to(device))
                 val_temp.append(val_acc)
-            val_temp = np.array(val_temp).mean(axis=0)
-            valid_acc.append(val_temp)  # Record validation accuracy for selection
 
-            # Testing for 500 downstream tasks
+            val_temp = np.array(val_temp).mean(axis=0)
+            valid_acc.append(val_temp)
+
             for id_spt, y_spt, id_query, y_query in test_pool:
                 _, tst_acc = Meta.fine_tuning(id_spt, y_spt.to(device), id_query, y_query.to(device))
                 test_temp.append(tst_acc)
+
             test_temp = np.array(test_temp)
-            test_temp, test_std = test_temp.mean(axis=0), test_temp.std(axis=0) / np.sqrt(len(test_pool))
-            # Record testing accuracy and stdev
+            test_temp, test_std = (test_temp.mean(axis=0), test_temp.std(axis=0) / np.sqrt(len(test_pool)))
+
             test_acc.append(test_temp)
             test_stdev.append(test_std)
 
-            # Reporting Valid/Test acc by 160 episodes
-            print(f"[Valid/Test] epoch {epoch}- Valid Acc: {val_temp:.4f} / Test Acc: {test_temp:.4f}")
+            tqdm.write(f"[Epoch {epoch + 1:5d}] " f"Valid Acc: {val_temp:.4f} | " f"Test Acc: {test_temp:.4f} ± {1.96 * test_std:.4f}")
 
     train_time = time.time() - train_start
-    print(f"Training ended with total elapsed time {train_time:.4f} seconds")
 
-    # Reporting the best performance based on validation
-    valid_acc, test_acc, test_stdev = np.array(valid_acc), np.array(test_acc), np.array(test_stdev)
+    print(f"\nTraining completed | Elapsed: {train_time:.2f}s")
+
+    valid_acc = np.array(valid_acc)
+    test_acc = np.array(test_acc)
+    test_stdev = np.array(test_stdev)
+
     Best_ix = np.argmax(valid_acc)
-    Best_epoch = Best_ix * 160 - 1
-    print("<Best Performance (with 95%% confidence interval)>")
-    print(f"Valid Acc: {valid_acc[Best_ix]:.4f} / Test Acc: {test_acc[Best_ix]:.4f}±{1.96*test_stdev[Best_ix]:.4f} at epoch {Best_epoch}")
+    Best_epoch = (Best_ix + 1) * 160
+
+    print("\n========== Best Performance ==========")
+    print(f"Epoch    : {Best_epoch}")
+    print(f"Valid Acc: {valid_acc[Best_ix]:.4f}")
+    print(f"Test Acc : {test_acc[Best_ix]:.4f} " f"± {1.96 * test_stdev[Best_ix]:.4f} (95% CI)")
+    print("======================================")
 
     return valid_acc[Best_ix], test_acc[Best_ix], test_stdev[Best_ix]
 
