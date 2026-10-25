@@ -1,9 +1,9 @@
 # CLAUDE.md — NAQ 리포 위 anchor 연구 (HL 트랙)
 
-개정 4 · 2026-10-25 · 작성 이희태 (개정 1: 10-24, 개정 2·3: 10-25)
+개정 5 · 2026-10-25 · 작성 이희태 (개정 1: 10-24, 개정 2–4: 10-25)
 이 파일은 Agent가 매 세션 처음에 읽는 상태 파일이다. 수정은 이희태만 한다. Agent는 이 파일을 고치지 않는다.
-개정 4 변경: **서버 이전**(1×4080 SUPER → gpusystem 4×RTX 6000 Ada, GPU 3번만 사용). §2 환경·GPU·동시 실행, §3 run 시간·기준선은 새 서버에서 재측정, §8 수치에 측정 서버 표기, §9 이전된 비추적 자산 목록.
-개정 3 변경: §0 트랙 상태(anchor 트랙 종결, 스토리 C 시작), §5 레지스트리 HL03, §8 HL02 사실 추가, §9 평가 에피소드 캐시·mining 배치 의존성.
+개정 5 변경: §0 스토리 C 상태(HL03 결과), §2 환경 `NAQ` 확정·run 시간, §5 레지스트리 HL04, §8 HL03 확정 사실, §9 러너 동시 실행 수·git identity.
+개정 4 변경: 서버 이전(gpusystem, GPU 3번). 개정 3 변경: anchor 트랙 종결, 스토리 C 시작.
 
 ## 0. 이 리포가 무엇인가
 
@@ -11,6 +11,8 @@
 - **트랙 상태**:
   - anchor 트랙(스토리 A·B, HL01–HL02): **종결**(2026-10-25). oracle 상한 +0.19%p < 1.0%p. 문서 `reports/HL_anchor_track_closure.md`. anchor 샘플링을 바꾸는 새 실험은 지시서에 명시될 때만 한다.
   - **스토리 C(HL03–)**: query 쪽. B_Choi가 얻은 "먼 query"의 순도를 레이블 없이 되찾을 수 있는가. Choi의 query 작업(문서 17–19, exp044–049)의 연장이다.
+    - HL03 결과: 거리 고정 순도 곡선(G1)은 가파르다 — B4(X 순위 201–1000)에서 순도 0.4→0.6이면 1-shot +2.8, 5-shot도 함께 오름. 그러나 "석휘님 필터와 같은 개수"로 다시 고르는 판정기(G0, R1 채점)는 순도를 0.36까지만 올려 게이트(0.55) 실패 → **그 방식은 닫힘**.
+    - HL04: 운용 지점(anchor당 10개 선택)에서의 순도와, 레이블 없는 학습 arm으로 판정.
 - 작업 브랜치: `hl/anchor` (`naq_exp` HEAD에서 분기, 이름은 유지). `naq_exp`에는 아무것도 쓰지 않는다.
 
 ## 1. 디렉터리 규약
@@ -38,7 +40,7 @@
 - **서버**: `gpusystem`, 리포 경로 `~/workspace/NAQ`. GPU 4×RTX 6000 Ada(48GB), driver 580.95.05.
 - **GPU 기본값은 3번(마지막 GPU)이다.** 지시서나 채팅에 다른 번호가 명시되지 않는 한, 모든 명령 앞에 `CUDA_VISIBLE_DEVICES=3`을 붙이고 스크립트 인자는 `--device 0` 그대로 둔다(보이는 GPU가 하나뿐이므로 0 = 물리 3번). 0–2번에 다른 사람의 프로세스가 있어도 건드리지 않는다. 이 규칙은 HL03 이후 모든 지시서에 적용된다.
 - **동시 실행**: run당 예약 메모리 약 8.2GB(구 서버 측정)이므로 학습 run은 **동시 최대 3개**. 학습 없는 진단 스크립트(dense 행렬 사용)는 학습 run과 겹치지 않게 돌린다. 새 서버에서 측정한 run당 메모리를 HL03 보고서에 적는다.
-- **conda 환경 `NAQ`** — 우리 전용, `env/NAQ_conda.yml` + `env/requirements_pip.txt`로 HL03 §0-3에서 만든다. 새 서버에는 쓸 만한 기존 환경이 없다(이희태 확인). 서버에 원래 있던 다른 환경은 쓰지도, 건드리지도 않는다. `NAQ`에 추가 설치가 필요하면 HL03 §0-3의 허용 범위 안에서만 하고, 범위 밖이면 멈춘다(§7). 확정 후 `hl/hl_envcheck.py` 출력과 `conda list --export`를 `env/`에 남긴다.
+- **conda 환경 `NAQ`**(HL03에서 생성, `/home/h2tae/anaconda3/envs/NAQ`): python 3.10.21, torch 2.5.1+cu121, PyG 2.8.0.post1, torch-scatter 2.1.2, torch-sparse 0.6.18, numpy 1.26.3, scipy 1.15.3, sklearn 1.7.2. 점검 `env/envcheck_gpusystem_NAQ.txt`, 인벤토리 `env/gpusystem_NAQ_inventory.txt`. 실행은 `conda activate NAQ` 또는 환경 python 전체 경로. 우리 전용이지만 추가 설치는 지시서에 명시될 때만. 서버의 다른 환경(`base`)은 쓰지 않는다.
 - 구 서버 기록(참고): `taskns` — python 3.9.25, torch 2.4.1+cu121, PyG 2.6.1(`env/envcheck_taskns.txt`). HL01–HL02 수치는 이 환경·RTX 4080 SUPER에서 측정됐다. 새 환경은 torch 2.5.1+cu121, PyG 2.8.0.post1(Choi의 원래 환경과 같음)이다.
 - 모든 스크립트는 **리포 루트에서** 실행한다. Choi 스크립트·함수는 `PYTHONPATH=$PWD`를 주고 `choi_exps/`를 sys.path에 넣어 쓴다(`hl/hl000_run.py`가 하는 방식). `choi_exps/run_exp049.py`는 쓰지 않는다.
 - 백그라운드 실행은 `nohup ... > out/hl/<이름>.log 2>&1 & echo $! > out/hl/<이름>.pid`로 하고, **감시는 PID 파일로만** 한다(`kill -0 $(cat pid)`). 로그 tail을 반복 polling하지 않는다.
@@ -50,8 +52,8 @@
 - 고정 에피소드: `save/fixed_episodes/{dataset}/5way_{shot}shot_8query_seed{seed}/{valid,test}_episodes.json`. seed 1212·1213·1214는 생성됨. 새 seed는 `choi_exps/exp026.py`로 생성(있으면 거부함 — 정상).
 - 기준선 정의: **NaQ** = `exp049 --method naq`. **B_Choi** = `exp049 --method ours --tau 0.3`(τ*=0.3은 HL01 §5-1에서 1-shot valid로 선택). 필터 = ÂX·Â²X 코사인이 **둘 다** τ 이상인 노드만 남김(전체 노드 대상) → X 코사인 정렬의 정중앙 10개 → 10개 미만이면 min(s1,s2) 상위 10개로 relax.
 - 데이터셋 순서: Amazon_clothing → dblp → Amazon_eletronics(철자는 원본 그대로). Cora_full은 쓰지 않는다.
-- **run 시간**: 구 서버(RTX 4080 SUPER) NaQ 약 42초, B_Choi 약 51초. 새 서버 값은 HL03 §0에서 재측정해 보고서에 적는다.
-- **기준선은 서버별로 따로 잡는다.** GPU·환경이 바뀌면 같은 설정도 수치가 달라질 수 있다. 새 서버의 비교 기준은 HL03 §0-4에서 다시 돌린 B_Choi(uniform anchor, 5 seed)이고, HL02의 82.70은 참고값으로만 쓴다.
+- **run 시간(새 서버)**: 단독 B_Choi 약 47초(wall 62초), 2개 동시 wall 약 95초, 3개 동시 wall 약 120초 — 동시 실행의 처리량 이득은 작다(약 1.5배). run당 예약 메모리 8.22GB, 3개 동시에 GPU 26.8GB. 큐 설계: 40 run ≈ 30분.
+- **새 서버 기준선(HL03 T0)**: NaQ seed 1212 80.65 / 90.52. **B_Choi uniform 5 seed 82.71 ± 0.31 / 89.91 ± 0.57** — 이후 모든 Δ의 기준. 구 서버(82.70 / 89.91)와 일치.
 - seed 표준: **5개 — 1212, 1213, 1214, 1215, 1216**. 탐색은 1212 하나, 판정은 5개.
 
 ## 4. 레이블 사용 규칙
@@ -64,8 +66,8 @@
 - 지시서 `instructions/HL##_<이름>.md`는 이희태가 쓴다. Agent는 지시서에 적힌 것만 한다. 지시서에 없는 판단이 필요하면 §7 규칙을 따른다.
 - 사전 등록 `HLP###`: Agent는 **계산값만** 표에 채운다. 판정은 이희태. 결과를 본 뒤 예측 문구를 바꾸지 않는다.
 - 보고서 `reports/HL##_<이름>.md`: 사실만(해석·추측·제안 금지). ① 실행 명령·환경·commit ② 표 ③ 사전 등록 대조표 ④ 실패·경고·이상 ⑤ 산출물 경로. 수치는 스크립트가 쓴 csv에서 옮긴다. 표 csv는 `reports/HL##_tables/`에 두고 커밋한다.
-- 번호 레지스트리: HL01 환경·smoke·P0(완료, HLP001–006) / HL02 진단 + anchor oracle 사다리 + B 점검(완료, HLP007–023) / **HL03 새 서버 기준선 + 먼 후보 순도 판정 G0 + 거리 고정 순도 oracle G1(HLP024–035)** / 이후 이희태가 추가.
-- 스크립트 번호: hl000(·b·c) 러너, hl001 HL01 표, hl002 노드 진단, hl003 anchor oracle 학습, hl004 임베딩 점검, **hl005 G0 순도 판정, hl006 G1 순도 oracle 학습**.
+- 번호 레지스트리: HL01(완료, HLP001–006) / HL02(완료, HLP007–023) / HL03 새 서버 기준선 + G0 + G1(완료, HLP024–035) / **HL04 precision@k 순도 판정 G0b + 레이블 없는 학습 G2(HLP036–049)** / 이후 이희태가 추가.
+- 스크립트 번호: hl000(·b·c·d) 러너, hl001 HL01 표, hl002 노드 진단, hl003 anchor oracle 학습, hl004 임베딩 점검, hl005 G0 순도 판정, hl006 G1 순도 oracle 학습, **hl007 G0b precision@k, hl008 G2 레이블 없는 먼-query 학습**. 표 스크립트는 `hl/hl_hl##_tables.py`.
 
 ## 6. git 규약
 
@@ -93,6 +95,8 @@
 - HL02 진단: 노드별 B_Choi query 순도 평균 0.417, NaQ 0.597. X 상위 50 중 필터 탈락 쌍의 same-GT 0.218, 통과 쌍 0.574, 무작위 쌍 0.020. 필터 통과 수와 degree ρ = 0.35.
 - HL02 임베딩(B_Choi ckpt): 거리 중앙값 통과 0.04 / 탈락 0.35 / 무작위 0.78. uniform 에피소드에서 negative 확률 합 < 0.05인 query 50%.
 - Choi oracle(문서 19, 1 seed, 다른 평가 코드로 같은 프로토콜): query 순도 100% top-K 85.02, middle-K 89.90, reverse 88.68.
+- **HL03 G0(새 서버, anchor 2,000개)**: X 순위 구간별 기본 순도 B1(1–10) 0.60 / B2 0.45 / B3 0.33 / **B4(201–1000) 0.18** / B5 0.06. B4에서 판정기 AUROC: `x` 0.59, `ppr` 0.70, `ax` 0.73, `mv` 0.73, `a2x` 0.76, `enc_b` 0.78, `enc_n` 0.79, `comb` 0.77. 석휘님 필터와 같은 개수(R1, anchor당 중앙값 ~100)를 고르면 순도는 `choi` 0.35 / `comb` 0.36 / `enc_n` 0.37(쌍 합산) — 판정기가 필터를 거의 못 넘음.
+- **HL03 G1(거리 고정 B4, 순도 p 가변, 5 seed)**: p=0.4 → 83.92 / 91.12, p=0.6 → 86.73 / 92.87, p=0.8 → 88.83 / 93.92, p=1.0 → 89.42 / 94.17 (1-shot / 5-shot). 순도는 1-shot·5-shot을 **함께** 올린다 → B_Choi의 5-shot 손실은 거리가 아니라 불순도 탓. p=0.4(순도 0.40)가 B_Choi(순도 0.42)보다 +1.2 높음 — 원인 미확인(HL04 §2-4).
 
 ## 9. 운영 메모
 
@@ -102,4 +106,6 @@
 - **평가 에피소드는 seed와 무관하게 같다.** NaQ 원본 `downstream_task_generator`가 `save/downstream_tasks/{dataset}/5way_{shot}shot.pkl` 캐시를 재사용하기 때문이다. seed 간 분산은 학습 쪽만 반영한다. 캐시 pkl은 건드리지 않는다.
 - exp049 query mining은 노드 배치 구성에 따라 동률 노드에서 결과가 미세하게 달라질 수 있다(부동소수 1e-7). `hl_common`의 함수는 exp049와 같은 배치 방식으로 계산한다.
 - 같은 설정 재학습 시 1-shot test가 0.1%p 안에서 흔들린다. 0.3%p 미만의 차이는 판단 근거로 쓰지 않는다.
+- `hl/hl000b_run_oracle.py`는 동시 실행이 최대 2개로 코드에 고정되어 있고, `hl000c` 이후는 3개. 새 러너는 `hl000c`를 복사한다.
+- git identity는 리포 로컬 config에 설정되어 있다(`dragor0123`, 이희태 메일). 전역 설정은 건드리지 않는다.
 - **새 서버로 rsync한 비추적 자산**(구 서버와 동일, 2026-10-25): `data/`, `save/downstream_tasks/`(md5 1-shot `5f901727f81903cc12159d280be6915d`, 5-shot `ca3edaca02d541cbc0ee15a2122ef24a`), `save/fixed_episodes/`(seed 1212–1216), `results/hl/p0/Amazon_clothing/{ours/tau_0.3,naq/baseline}/seed_1212/best_1shot.pt`, `results/hl/hl02/diag/node_table_tau0.3.csv`. 그 밖의 `results/hl/` 내용(HL01·HL02의 다른 run 결과)은 새 서버에 없다 — 필요하면 보고서·csv(커밋됨)를 인용한다.
