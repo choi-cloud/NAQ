@@ -1,0 +1,321 @@
+"""exp066: exp063 homophily filtering followed by raw-feature cosine Middle-K.
+
+Keep the original NAQ support sampler, meta-learner, training and evaluation
+unchanged. GT is used only to report diagnostics.
+"""
+
+import argparse
+import json
+import os
+import time
+from pathlib import Path
+
+import numpy as np
+import scipy.sparse as sp
+import torch
+import torch.nn.functional as F
+from sklearn.decomposition import TruncatedSVD
+from sklearn.preprocessing import normalize
+
+from data import load_data
+from exp061 import GraphPairModel, sparse_adjacency, torch_adj
+from exp057 import evaluate
+from meta import ProtoNet
+from task_generator import downstream_task_generator, spt_sampling
+from utils import seed_everything
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", type=int, default=0)
+    parser.add_argument("--dataset", default="Cora_full")
+    parser.add_argument("--epoch", type=int, default=2000)
+    parser.add_argument("--n_way", type=int, default=5)
+    parser.add_argument("--k_shot", type=int, default=1)
+    parser.add_argument("--q_query", type=int, default=10)
+    parser.add_argument("--q_query_test", type=int, default=8)
+    parser.add_argument("--num_valid_tasks", type=int, default=50)
+    parser.add_argument("--num_downstream_tasks", type=int, default=500)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--latent", type=int, default=256)
+    parser.add_argument("--l2_penalty", type=float, default=1e-4)
+    parser.add_argument("--eval_interval", type=int, default=160)
+    parser.add_argument("--seed", type=int, default=1212)
+    parser.add_argument("--shots", type=int, nargs="+", default=[1, 5])
+    parser.add_argument("--pretrain_checkpoint", default="exp063.pt")
+    parser.add_argument("--pair_batch", type=int, default=8192)
+    parser.add_argument("--tau", type=float, default=0.5)
+    return parser.parse_args()
+
+
+def save_json(path, report):
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def load_frozen_pair_model(data, checkpoint_path, device):
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    pre = checkpoint["args"]
+    if pre["dataset"] != "Cora_full":
+        raise ValueError("Pretraining checkpoint dataset mismatch")
+    x = data.features.detach().cpu().numpy().astype(np.float32, copy=False)
+    n = x.shape[0]
+    ax = np.asarray(sparse_adjacency(data, n) @ x, dtype=np.float32)
+    views = []
+    for mat in (x, ax):
+        dim = min(int(pre["svd_dim"]), min(mat.shape) - 1)
+        reduced = TruncatedSVD(n_components=dim, n_iter=5, random_state=int(pre["seed"])).fit_transform(mat)
+        views.append(normalize(reduced.astype(np.float32), norm="l2", copy=True))
+    features = torch.as_tensor(np.concatenate(views, axis=1), device=device)
+    model = GraphPairModel(features.shape[1], int(pre["hidden"]), int(pre["embed_dim"]), float(pre["dropout"])).to(device)
+    model.load_state_dict(checkpoint["model"], strict=True)
+    model.eval()
+    with torch.no_grad():
+        z = model.encode(features, torch_adj(data, device))
+    return model, z, x, pre
+
+
+def threshold_model_candidates(model, z, anchors, tau, batch, device):
+    """Keep pairs with sigmoid(logit) >= tau; evaluate full graph in chunks."""
+    n = z.shape[0]
+    threshold_logit = float(np.log(tau) - np.log1p(-tau))
+    result = {}
+    counts = []
+    with torch.no_grad():
+        for counter, anchor in enumerate(anchors, 1):
+            anchor = int(anchor)
+            retained = []
+            for begin in range(0, n, batch):
+                ids = torch.arange(begin, min(begin + batch, n), device=device)
+                pairs = torch.stack((torch.full_like(ids, anchor), ids), dim=1)
+                score = model.pair_logits(z, pairs)
+                mask = (score >= threshold_logit) & (ids != anchor)
+                retained.append(ids[mask].cpu().numpy().astype(np.int64))
+            candidates = np.concatenate(retained)
+            result[anchor] = candidates
+            counts.append(len(candidates))
+            if counter % 500 == 0 or counter == len(anchors):
+                print(f"[exp066] Filtered {counter}/{len(anchors)} anchors; " f"latest survivors={len(candidates)}", flush=True)
+    return result, np.asarray(counts, dtype=np.int64)
+
+
+def main():
+    args = parse_args()
+    if args.dataset != "Cora_full" or args.n_way != 5 or args.k_shot != 1:
+        raise ValueError("exp066 expects Cora_full 5-way 1-shot training")
+    if not 0 < args.tau < 1:
+        raise ValueError("tau must be in (0, 1)")
+    if args.pair_batch < 1:
+        raise ValueError("pair_batch must be positive")
+    args.setting = "unsup"
+    args.query_generation = "NaQ"
+    args.type = "feature"
+    args.k_shot_test = args.shots[0]
+    torch.set_num_threads(4)
+    seed_everything(args.seed)
+    device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
+    if device.type == "cuda":
+        torch.cuda.set_device(device)
+    root = Path(__file__).resolve().parent
+    ckpt_path = Path(args.pretrain_checkpoint)
+    if not ckpt_path.is_absolute():
+        ckpt_path = root / ckpt_path
+    if not ckpt_path.is_file():
+        raise FileNotFoundError(f"Missing pretraining checkpoint: {ckpt_path}")
+    out = root / "exp066.json"
+    start = time.perf_counter()
+    report = {
+        "experiment": "exp066",
+        "status": "initializing",
+        "args": vars(args).copy(),
+        "protocol": {
+            "support": "Original NAQ random spt_sampling; GT collisions allowed",
+            "query": "Keep only nodes with sigmoid(frozen exp063 logit) >= tau, then select middle-K by descending raw-feature cosine after excluding all supports. If fewer than K eligible, fall back to feature-cosine top-K among all eligible nodes and count these episodes.",
+            "query_labels": "Original NAQ episode-local support pseudo labels repeated for 10 queries",
+            "meta_model": "Original NAQ ProtoNet GCN, squared-Euclidean pseudo-label NLL",
+            "downstream": "Original downstream_task_generator, separate 1-/5-shot best validation checkpoints",
+            "gt": "Diagnostics and downstream evaluation only; no GT in training or query selection",
+            "comparison": "exp051 NAQ-Feat and exp064 model Top-K; same meta-training protocol",
+        },
+        "history": [],
+        "best_by_shot": {},
+        "test_by_shot": {},
+    }
+    save_json(out, report)
+    data = load_data(args)
+    if device.type == "cuda":
+        data.set_device(str(device))
+
+    # Draw supports and downstream tasks BEFORE any SVD/pair-model operations,
+    # keeping NAQ's sampling random stream independent of feature preprocessing.
+    supports = [spt_sampling(data.id_train, args.n_way, args.k_shot) for _ in range(args.epoch)]
+    downstream = {}
+    for shot in args.shots:
+        args.k_shot_test = shot
+        downstream[str(shot)] = downstream_task_generator(args, data, args.n_way, shot)
+    labels = torch.as_tensor(data.labels).detach().cpu().numpy().reshape(-1)
+
+    print(f"[exp066] Rebuilding frozen exp063 embeddings from {ckpt_path}", flush=True)
+    pair_model, z, x, pre_args = load_frozen_pair_model(data, ckpt_path, device)
+    report["pretraining_args"] = pre_args
+    anchors = np.unique(np.concatenate([np.asarray(sid).reshape(-1) for sid, _ in supports]))
+    n = x.shape[0]
+    print(f"[exp066] Threshold tau={args.tau:g} on {len(anchors)} unique anchors", flush=True)
+    cache, survivor_counts = threshold_model_candidates(pair_model, z, anchors, args.tau, args.pair_batch, device)
+    print(
+        f"[exp066] Survivors min/mean/median/max: "
+        f"{survivor_counts.min()}/{survivor_counts.mean():.1f}/"
+        f"{np.median(survivor_counts):.1f}/{survivor_counts.max()}",
+        flush=True,
+    )
+    x_normalized = sp.csr_matrix(x)
+    x_normalized = normalize(x_normalized, norm="l2", axis=1, copy=False)
+    cosine_cache = {}
+    cosine_fallback_cache = {}
+    for anchor in anchors:
+        anchor = int(anchor)
+        ids = cache[anchor]
+        sims = (x_normalized[ids] @ x_normalized[anchor].T).toarray().reshape(-1)
+        order = np.lexsort((ids, -sims))
+        cosine_cache[anchor] = ids[order]
+        if len(ids) < args.q_query + args.n_way - 1:
+            all_sims = (x_normalized @ x_normalized[anchor].T).toarray().reshape(-1)
+            all_sims[anchor] = -np.inf
+            all_ids = np.arange(n, dtype=np.int64)
+            fallback_order = np.lexsort((all_ids, -all_sims))
+            cosine_fallback_cache[anchor] = all_ids[fallback_order[: args.q_query + args.n_way]]
+    del z, pair_model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    pool = []
+    correct = 0
+    total = 0
+    duplicate = []
+    overlap = []
+    fallback_anchor_instances = 0
+    selected_pool_sizes = []
+    for sid, ys in supports:
+        sid = np.asarray(sid, dtype=np.int64).reshape(-1)
+        excluded = set(sid.tolist())
+        query = []
+        for anchor in sid:
+            allowed = [int(j) for j in cosine_cache[int(anchor)] if int(j) not in excluded]
+            selected_pool_sizes.append(len(allowed))
+            if len(allowed) < args.q_query:
+                fallback_anchor_instances += 1
+                if int(anchor) not in cosine_fallback_cache:
+                    all_sims = (x_normalized @ x_normalized[int(anchor)].T).toarray().reshape(-1)
+                    all_sims[int(anchor)] = -np.inf
+                    all_ids = np.arange(n, dtype=np.int64)
+                    fallback_order = np.lexsort((all_ids, -all_sims))
+                    cosine_fallback_cache[int(anchor)] = all_ids[fallback_order[: args.q_query + args.n_way]]
+                chosen = [int(j) for j in cosine_fallback_cache[int(anchor)] if int(j) not in excluded][: args.q_query]
+            else:
+                start_idx = (len(allowed) - args.q_query) // 2
+                chosen = allowed[start_idx : start_idx + args.q_query]
+            if len(chosen) != args.q_query:
+                raise RuntimeError(f"Insufficient fallback candidates for anchor={anchor}")
+            query.extend(chosen)
+        qid = np.asarray(query, dtype=np.int64)
+        yq = torch.repeat_interleave(torch.as_tensor(ys), args.q_query)
+        pool.append((sid, ys, qid, yq))
+        correct += int((labels[qid] == np.repeat(labels[sid], args.q_query)).sum())
+        total += len(qid)
+        duplicate.append((len(qid) - len(np.unique(qid))) / len(qid))
+        overlap.append(float(np.isin(qid, sid).mean()))
+    report["query_diagnostics"] = {
+        "tau_sigmoid_score": args.tau,
+        "score_calibration_warning": "exp063 used ranking-only loss: sigmoid is not calibrated probability",
+        "retained_count_before_support_exclusion": {
+            "min": int(survivor_counts.min()),
+            "mean": float(survivor_counts.mean()),
+            "median": float(np.median(survivor_counts)),
+            "max": int(survivor_counts.max()),
+        },
+        "retained_fraction_mean": float(survivor_counts.mean() / (n - 1)),
+        "eligible_pool_size_after_support_exclusion_mean": float(np.mean(selected_pool_sizes)),
+        "fallback_anchor_instances": fallback_anchor_instances,
+        "fallback_fraction": fallback_anchor_instances / len(selected_pool_sizes),
+        "fallback_policy": "If eligible < q_query, use raw-feature cosine Top-K over full graph excluding supports",
+        "selection": "Middle contiguous 10 in cosine-descending thresholded pool, fallback to cosine Top-10 if too few",
+        "gt_match_rate": correct / total,
+        "total_queries": total,
+        "duplicate_fraction_mean": float(np.mean(duplicate)),
+        "support_query_overlap_fraction": float(np.mean(overlap)),
+    }
+    print(f"[exp066] Query GT Match={correct / total:.4%}", flush=True)
+    report["status"] = "training"
+    save_json(out, report)
+
+    # Reinitialize NAQ exactly like exp057, with NO pretraining weights transferred.
+    seed_everything(args.seed + 5700)
+    config = [
+        ("GCN", (data.features.shape[1], 2 * args.latent), True),
+        ("GCN", (2 * args.latent, args.latent), True),
+        ("linear", (args.latent, args.n_way), True),
+    ]
+    model = ProtoNet(args, config, data).to(device)
+    best_valid = {str(shot): -1.0 for shot in args.shots}
+    paths = {str(shot): root / f"exp066_{shot}shot_best.pt" for shot in args.shots}
+    losses = []
+    train_acc = []
+    for epoch, (sid, ys, qid, yq) in enumerate(pool, 1):
+        model.network.train()
+        enc = model.network(data.features, adj=data.adj)
+        sid_t = torch.as_tensor(sid, dtype=torch.long, device=device)
+        qid_t = torch.as_tensor(qid, dtype=torch.long, device=device)
+        ys_t = torch.as_tensor(ys, dtype=torch.long, device=device)
+        yq_t = torch.as_tensor(yq, dtype=torch.long, device=device)
+        dist = (enc[qid_t, None, :] - enc[sid_t][None, :, :]).square().sum(-1)
+        target = (yq_t[:, None] == ys_t[None, :]).long().argmax(1)
+        log_prob = F.log_softmax(-dist, dim=1)
+        loss = F.nll_loss(log_prob, target)
+        model.meta_optimizer.zero_grad()
+        loss.backward()
+        model.meta_optimizer.step()
+        losses.append(float(loss.detach().item()))
+        train_acc.append(float((log_prob.argmax(1) == target).float().mean().item()))
+        if epoch % args.eval_interval != 0 and epoch != args.epoch:
+            continue
+        validations = {}
+        for shot in args.shots:
+            key = str(shot)
+            val = evaluate(model, data, downstream[key][0], args.n_way, shot)
+            validations[key] = val
+            if val["accuracy"] > best_valid[key]:
+                best_valid[key] = val["accuracy"]
+                torch.save({"epoch": epoch, "model": model.network.state_dict()}, paths[key])
+                report["best_by_shot"][key] = {"epoch": epoch, "validation": val, "checkpoint": str(paths[key])}
+        report["history"].append(
+            {
+                "epoch": epoch,
+                "train_loss_mean": float(np.mean(losses)),
+                "train_accuracy_mean": float(np.mean(train_acc)),
+                "validation_by_shot": validations,
+            }
+        )
+        losses.clear()
+        train_acc.clear()
+        save_json(out, report)
+        print("[exp066] epoch=" + str(epoch) + " valid=" + " ".join(f"{shot}shot:{v['accuracy']:.2%}" for shot, v in validations.items()), flush=True)
+
+    for shot in args.shots:
+        key = str(shot)
+        state = torch.load(paths[key], map_location=device, weights_only=True)
+        model.network.load_state_dict(state["model"])
+        report["test_by_shot"][key] = evaluate(model, data, downstream[key][1], args.n_way, shot)
+        result = report["test_by_shot"][key]
+        print(
+            f"[exp066] {key}-shot best={report['best_by_shot'][key]['epoch']} " f"test={result['accuracy']:.4%} ±{result['ci95_half_width']:.4%}",
+            flush=True,
+        )
+    report["status"] = "completed"
+    report["elapsed_seconds"] = round(time.perf_counter() - start, 2)
+    save_json(out, report)
+    print(f"[exp066] COMPLETE: {out}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
