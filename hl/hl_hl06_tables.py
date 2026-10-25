@@ -183,5 +183,24 @@ def prereg():
     write(TABLES, "prereg_HL06.csv", [dict(id=a, prediction=b, computed=c) for a, b, c in rows])
 
 
+def extra():
+    """OVERNIGHT §여분: label-free arms with seeds 1217-1221 (results/hl/hl06/train_extra) next to the 5 main seeds; 10-seed means."""
+    extra_root, extra_seeds = Path("results/hl/hl06/train_extra"), (1217, 1218, 1219, 1220, 1221)
+    rows = []
+    for arm in LABEL_FREE:
+        main, ext = reports(ROOT, arm), reports(extra_root, arm, extra_seeds)
+        row = {"arm": arm}
+        for shot in ("1", "5"):
+            a = [pct(d["evaluation"][shot]["test_accuracy"]) for d in main.values()]
+            b = [pct(d["evaluation"][shot]["test_accuracy"]) for d in ext.values()]
+            for tag, v in (("seeds1212_1216", a), ("seeds1217_1221", b), ("all", a + b)):
+                m, sd = mean_std(v) if v else ("", "")
+                row.update({f"test_{shot}shot_{tag}_n": len(v), f"test_{shot}shot_{tag}_mean": m, f"test_{shot}shot_{tag}_std": sd})
+            row[f"delta_{shot}shot_all_vs_bchoi"] = round(statistics.mean(a + b) - BCHOI[int(shot) // 5], 2) if a + b else ""
+        rows.append(row)
+    write(TABLES, "T10x_extra_seeds.csv", rows)
+    write(TABLES, "T10x_extra_seeds_per_seed.csv", per_seed_rows(extra_root, LABEL_FREE, extra_seeds))
+
+
 if __name__ == "__main__":
-    {"t10": t10, "prereg": prereg}[sys.argv[1]]()
+    {"t10": t10, "prereg": prereg, "extra": extra}[sys.argv[1]]()
