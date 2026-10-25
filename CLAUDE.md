@@ -1,7 +1,9 @@
 # CLAUDE.md — NAQ 리포 위 anchor 연구 (HL 트랙)
 
-개정 6 · 2026-10-25 · 작성 이희태 (개정 1: 10-24, 개정 2–5: 10-25)
+개정 8 · 2026-10-25 · 작성 이희태 (개정 1: 10-24, 개정 2–7: 10-25)
 이 파일은 Agent가 매 세션 처음에 읽는 상태 파일이다. 수정은 이희태만 한다. Agent는 이 파일을 고치지 않는다.
+개정 8 변경: **§0-1 야간 시퀀스(10-25 23:30 → 10-26 08:00 KST, HL06–HL10)**, **§7 야간 모드 규칙(night-auto: 정지 대신 기록·건너뛰기)**, §5 레지스트리 HL07–HL10, §9 세션 복구.
+개정 7 변경: §0 스토리 C 종결·스토리 D 시작, **§2 GPU 2·3번 두 장 사용**, §5 레지스트리 HL06, §8 HL05 확정 사실, §9 다중 GPU 러너.
 개정 6 변경: §0 스토리 C 상태(HL04 결과 — 규칙상 종결, HL05는 종결 전 가설 확인), §5 레지스트리 HL05, §8 HL04 확정 사실.
 개정 5 변경: §0 스토리 C 상태(HL03 결과), §2 환경 `NAQ` 확정·run 시간, §5 레지스트리 HL04, §8 HL03 확정 사실, §9 러너 동시 실행 수·git identity.
 개정 4 변경: 서버 이전(gpusystem, GPU 3번). 개정 3 변경: anchor 트랙 종결, 스토리 C 시작.
@@ -11,11 +13,23 @@
 - 원격: `choi-cloud/NAQ`(브랜치 `naq_exp`, HEAD `1a20f23`)를 clone한 것. 원본은 NaQ(ICML'24, `JhngJng/NaQ-PyTorch`) 공식 코드이고, 그 위에 공동연구자 Choi가 `exp001`–`exp049` 실험 스크립트를 쌓았다.
 - **트랙 상태**:
   - anchor 트랙(스토리 A·B, HL01–HL02): **종결**(2026-10-25). oracle 상한 +0.19%p < 1.0%p. 문서 `reports/HL_anchor_track_closure.md`. anchor 샘플링을 바꾸는 새 실험은 지시서에 명시될 때만 한다.
-  - **스토리 C(HL03–)**: query 쪽. B_Choi가 얻은 "먼 query"의 순도를 레이블 없이 되찾을 수 있는가. Choi의 query 작업(문서 17–19, exp044–049)의 연장이다.
-    - HL03 결과: 거리 고정 순도 곡선(G1)은 가파르다 — B4(X 순위 201–1000)에서 순도 0.4→0.6이면 1-shot +2.8, 5-shot도 함께 오름. 그러나 "석휘님 필터와 같은 개수"로 다시 고르는 판정기(G0, R1 채점)는 순도를 0.36까지만 올려 게이트(0.55) 실패 → **그 방식은 닫힘**.
-    - HL04 결과: 10개 선택 지점에서도 판정기 순도는 최고 0.535(게이트 0.55 실패). 레이블 없는 학습 arm은 순도를 0.42 → 0.53으로 올렸지만 1-shot이 B_Choi보다 **2–4%p 낮았다** — 순도가 성능을 예측하지 않음. **사전 등록 규칙상 스토리 C 종결.**
-    - HL05(종결 전 마지막): 순도·X 거리를 고정하고 구조적 근접성(Â²X)만 바꾼 oracle 10 run으로 "구조적으로 가까운 same-class는 무정보" 가설을 확인/기각한 뒤 종결 문서를 쓴다. 방법 제안 단계가 아니다.
+  - 스토리 C(HL03–HL05): **종결**(2026-10-25). 레이블 없는 판정기 top-10으로 먼 query 순도를 올리는 방식은 학습 성능을 올리지 못했다. 문서 `reports/HL_storyC_closure.md`(확인된 사실 C1–C7, 미해명 잔차 R1–R2).
+  - **스토리 D(HL06–)**: 순도·거리 분리 query 선택. Choi의 FP 억제 방향(문서 17–19)을 유지하되, **판정기는 순도에만 쓰고 구조적 거리는 따로 통제**한다. 근거: 순도 1.0에서 구조적으로 무작위(G1 p=1.0, 89.42) ≈ 먼 것(HL05 far, 89.46) ≫ 가까운 것(near, 85.49) — 근접 비용은 극단적으로 가까운 쪽에서만 난다. 레이블 없는 top-k는 정의상 그 극단을 고른다. 가설 H-D: **판정기 선택을 Â²X 층(stratum) 안으로 제한하면, 같은 판정기의 top-10보다 1-shot이 오른다.**
+    - HL06: 판정기 × 거리 규칙 순도 채점(학습 없음) + R1 기술 통계 + oracle 4 arm + 레이블 없는 학습 6 arm(판정기는 사전 고정: B_Choi teacher 임베딩과 그 kNN 그래프 PPR).
 - 작업 브랜치: `hl/anchor` (`naq_exp` HEAD에서 분기, 이름은 유지). `naq_exp`에는 아무것도 쓰지 않는다.
+
+### 0-1. 야간 시퀀스 (2026-10-25 23:30 → 10-26 08:00 KST) — 마스터 문서 `instructions/OVERNIGHT_2026-10-26.md`
+
+| 순서 | 지시서 | 내용 | 목표 시각(KST) |
+|---|---|---|---|
+| 1 | `HL06_purity_distance_split.md` | 판정기 × 거리 규칙 진단, R1 기술, oracle 4 + 레이블 없는 6 arm(50 run) | 01:45 |
+| 2 | `HL07_clothing_grid_variants.md` | 순도 × 거리 2D oracle 격자(50 run) + 레이블 없는 변형 7 arm(35 run) | 03:15 |
+| 3 | `HL08_dblp_transfer.md` | dblp: 기준선, 진단, oracle 20, 레이블 없는 25 run | 05:15 |
+| 4 | `HL09_electronics_transfer.md` | Amazon_eletronics: HL08과 같은 구성 — **05:30 이전에 시작할 수 있을 때만** | 07:00 |
+| 5 | `HL10_clothing_fillers.md` | Clothing 층·판정기 변형 8 arm(40 run) — 남는 시간 채우기, 어느 단계가 건너뛰어졌을 때 즉시 | 07:15 |
+| — | 마감 | 07:15 이후 새 run 시작 금지, 07:45까지 `reports/OVERNIGHT_2026-10-26.md` + push | 08:00 |
+
+단계는 서로 독립이다. 한 단계가 실패해도 다음 단계로 간다(§7 야간 모드). 시각은 `TZ=Asia/Seoul date`로 확인한다.
 
 ## 1. 디렉터리 규약
 
@@ -40,8 +54,11 @@
 ## 2. 실행 환경 (HL03부터 새 서버)
 
 - **서버**: `gpusystem`, 리포 경로 `~/workspace/NAQ`. GPU 4×RTX 6000 Ada(48GB), driver 580.95.05.
-- **GPU 기본값은 3번(마지막 GPU)이다.** 지시서나 채팅에 다른 번호가 명시되지 않는 한, 모든 명령 앞에 `CUDA_VISIBLE_DEVICES=3`을 붙이고 스크립트 인자는 `--device 0` 그대로 둔다(보이는 GPU가 하나뿐이므로 0 = 물리 3번). 0–2번에 다른 사람의 프로세스가 있어도 건드리지 않는다. 이 규칙은 HL03 이후 모든 지시서에 적용된다.
-- **동시 실행**: run당 예약 메모리 약 8.2GB(구 서버 측정)이므로 학습 run은 **동시 최대 3개**. 학습 없는 진단 스크립트(dense 행렬 사용)는 학습 run과 겹치지 않게 돌린다. 새 서버에서 측정한 run당 메모리를 HL03 보고서에 적는다.
+- **GPU 사용 허가: 2번과 3번 두 장(HL06부터).** 0·1번은 어떤 경우에도 쓰지 않는다(다른 사람 몫). 각 프로세스는 `CUDA_VISIBLE_DEVICES=<2 또는 3>` 하나만 보게 하고 스크립트 인자는 `--device 0` 그대로 둔다(0 = 그 물리 GPU).
+  - 단일 프로세스 작업(진단 스크립트, smoke, 표 생성)은 기본 **3번**.
+  - 학습 큐는 다중 GPU 러너(§9, `hl/hl000f_run_hl06.py`)로 **GPU당 동시 최대 3개, 합계 최대 6개**.
+  - 시작 전 `nvidia-smi -i 2,3 --query-gpu=index,memory.used,memory.total --format=csv`를 기록한다. 어느 한 장에 다른 사람의 프로세스가 있거나 여유가 30GB 미만이면 그 장은 쓰지 않고 남은 장만 쓴다(보고서 ④에 기록, 정지 사유 아님). 둘 다 안 되면 §7(d) 정지(야간 모드에서는 §7-1의 재확인 뒤).
+- **동시 실행**: run당 예약 메모리 8.22GB(새 서버 측정). 학습 없는 진단 스크립트(dense 행렬 사용)는 같은 GPU의 학습 run과 겹치지 않게 돌린다.
 - **conda 환경 `NAQ`**(HL03에서 생성, `/home/h2tae/anaconda3/envs/NAQ`): python 3.10.21, torch 2.5.1+cu121, PyG 2.8.0.post1, torch-scatter 2.1.2, torch-sparse 0.6.18, numpy 1.26.3, scipy 1.15.3, sklearn 1.7.2. 점검 `env/envcheck_gpusystem_NAQ.txt`, 인벤토리 `env/gpusystem_NAQ_inventory.txt`. 실행은 `conda activate NAQ` 또는 환경 python 전체 경로. 우리 전용이지만 추가 설치는 지시서에 명시될 때만. 서버의 다른 환경(`base`)은 쓰지 않는다.
 - 구 서버 기록(참고): `taskns` — python 3.9.25, torch 2.4.1+cu121, PyG 2.6.1(`env/envcheck_taskns.txt`). HL01–HL02 수치는 이 환경·RTX 4080 SUPER에서 측정됐다. 새 환경은 torch 2.5.1+cu121, PyG 2.8.0.post1(Choi의 원래 환경과 같음)이다.
 - 모든 스크립트는 **리포 루트에서** 실행한다. Choi 스크립트·함수는 `PYTHONPATH=$PWD`를 주고 `choi_exps/`를 sys.path에 넣어 쓴다(`hl/hl000_run.py`가 하는 방식). `choi_exps/run_exp049.py`는 쓰지 않는다.
@@ -54,7 +71,7 @@
 - 고정 에피소드: `save/fixed_episodes/{dataset}/5way_{shot}shot_8query_seed{seed}/{valid,test}_episodes.json`. seed 1212·1213·1214는 생성됨. 새 seed는 `choi_exps/exp026.py`로 생성(있으면 거부함 — 정상).
 - 기준선 정의: **NaQ** = `exp049 --method naq`. **B_Choi** = `exp049 --method ours --tau 0.3`(τ*=0.3은 HL01 §5-1에서 1-shot valid로 선택). 필터 = ÂX·Â²X 코사인이 **둘 다** τ 이상인 노드만 남김(전체 노드 대상) → X 코사인 정렬의 정중앙 10개 → 10개 미만이면 min(s1,s2) 상위 10개로 relax.
 - 데이터셋 순서: Amazon_clothing → dblp → Amazon_eletronics(철자는 원본 그대로). Cora_full은 쓰지 않는다.
-- **run 시간(새 서버)**: 단독 B_Choi 약 47초(wall 62초), 2개 동시 wall 약 95초, 3개 동시 wall 약 120초 — 동시 실행의 처리량 이득은 작다(약 1.5배). run당 예약 메모리 8.22GB, 3개 동시에 GPU 26.8GB. 큐 설계: 40 run ≈ 30분.
+- **run 시간(새 서버)**: 단독 B_Choi 약 47초(wall 62초), 2개 동시 wall 약 95초, 3개 동시 wall 약 120초 — 동시 실행의 처리량 이득은 작다(약 1.5배). run당 예약 메모리 8.22GB, 3개 동시에 GPU 26.8GB. 큐 설계: GPU 한 장 40 run ≈ 30분, 두 장이면 약 15분.
 - **새 서버 기준선(HL03 T0)**: NaQ seed 1212 80.65 / 90.52. **B_Choi uniform 5 seed 82.71 ± 0.31 / 89.91 ± 0.57** — 이후 모든 Δ의 기준. 구 서버(82.70 / 89.91)와 일치.
 - seed 표준: **5개 — 1212, 1213, 1214, 1215, 1216**. 탐색은 1212 하나, 판정은 5개.
 
@@ -68,8 +85,8 @@
 - 지시서 `instructions/HL##_<이름>.md`는 이희태가 쓴다. Agent는 지시서에 적힌 것만 한다. 지시서에 없는 판단이 필요하면 §7 규칙을 따른다.
 - 사전 등록 `HLP###`: Agent는 **계산값만** 표에 채운다. 판정은 이희태. 결과를 본 뒤 예측 문구를 바꾸지 않는다.
 - 보고서 `reports/HL##_<이름>.md`: 사실만(해석·추측·제안 금지). ① 실행 명령·환경·commit ② 표 ③ 사전 등록 대조표 ④ 실패·경고·이상 ⑤ 산출물 경로. 수치는 스크립트가 쓴 csv에서 옮긴다. 표 csv는 `reports/HL##_tables/`에 두고 커밋한다.
-- 번호 레지스트리: HL01(완료, HLP001–006) / HL02(완료, HLP007–023) / HL03 새 서버 기준선 + G0 + G1(완료, HLP024–035) / HL04 precision@k G0b + 레이블 없는 학습 G2(완료, HLP036–049) / **HL05 구조 근접 vs 원거리 same-class oracle(HLP050–056)** / 이후 이희태가 추가.
-- 스크립트 번호: hl000(·b·c·d) 러너, hl001 HL01 표, hl002 노드 진단, hl003 anchor oracle 학습, hl004 임베딩 점검, hl005 G0 순도 판정, hl006 G1 순도 oracle 학습, **hl007 G0b precision@k, hl008 G2 레이블 없는 먼-query 학습, hl009 HL05 구조 oracle 학습**(러너 hl000e). 표 스크립트는 `hl/hl_hl##_tables.py`.
+- 번호 레지스트리: HL01(완료, HLP001–006) / HL02(완료, HLP007–023) / HL03 새 서버 기준선 + G0 + G1(완료, HLP024–035) / HL04 precision@k G0b + 레이블 없는 학습 G2(완료, HLP036–049) / HL05 구조 근접 vs 원거리 same-class oracle(완료, HLP050–056) / **HL06 순도·거리 분리: 판정기 × 거리 규칙 채점 + R1 기술 + oracle + 레이블 없는 학습(HLP057–079)** / **HL07 Clothing 2D oracle 격자 + 변형(HLP080–092)** / **HL08 dblp 전이(HLP093–102)** / **HL09 electronics 전이(HLP103–112)** / **HL10 Clothing 채움(HLP113–118)** / 이후 이희태가 추가.
+- 스크립트 번호: hl000(·b·c·d·e) 러너, hl001 HL01 표, hl002 노드 진단, hl003 anchor oracle 학습, hl004 임베딩 점검, hl005 G0 순도 판정, hl006 G1 순도 oracle 학습, hl007 G0b precision@k, hl008 G2 레이블 없는 먼-query 학습, hl009 HL05 구조 oracle 학습, **`hl_pdd.py` 레이블 없는 판정기·거리 규칙 공용 모듈(데이터셋 무관), hl010 진단(학습 없음, `--dataset`), hl011 학습(oracle + 레이블 없음, 모든 arm, `--dataset`), 러너 hl000f(다중 GPU)**. HL07–HL10은 새 스크립트를 만들지 않고 hl010·hl011에 arm·인자를 추가한다. 표 스크립트는 `hl/hl_hl##_tables.py`.
 
 ## 6. git 규약
 
@@ -79,10 +96,23 @@
 
 ## 7. 멈춤·auto 규칙
 
-- **멈추는 경우(채팅 보고 후 대기)**: (a) 불변 파일을 고쳐야만 진행되는 상황, (b) 지시서가 "정지"로 표시한 게이트 실패, (c) `taskns`에 설치가 필요해 보이는 상황(설치하지 말고 멈춘다), (d) GPU 메모리 부족·디스크 부족.
+- **멈추는 경우(채팅 보고 후 대기)**: (a) 불변 파일을 고쳐야만 진행되는 상황, (b) 지시서가 "정지"로 표시한 게이트 실패, (c) `NAQ` 환경에 지시서에 없는 설치가 필요해 보이는 상황(설치하지 말고 멈춘다), (d) GPU 메모리 부족·디스크 부족.
 - **멈추지 않는 경우**: 수치가 예측과 다름(기록만), 한 run 실패(오류 로그 남기고 다음 run), push 실패.
 - auto 모드는 지시서 또는 채팅에 "auto"라고 명시된 경우에만. auto에서는 질문하지 않고 §7의 멈춤 사유가 아니면 끝까지 간다.
 - 애매하면 **덜 하는 쪽**을 택하고 보고서 ④에 적는다.
+
+### 7-1. 야간 모드 (night-auto; 채팅에 "night-auto"라고 명시된 경우)
+
+목적: 사람이 없는 8시간 동안 **GPU가 비는 상태를 만들지 않는다.** 위 §7의 멈춤 규칙 가운데 (a)·(c)·(d) 그리고 지시서의 "정지"는 야간 모드에서 **"그 단계(또는 그 arm)를 건너뛰고 기록한 뒤 다음으로"**로 바뀐다. 멈추는 경우는 단 둘: ① §0 시작 시점에 리포 HEAD·브랜치가 지시서와 다를 때, ② GPU 2·3번이 둘 다 쓸 수 없을 때(이때도 30분 간격으로 세 번 다시 확인한 뒤 멈춘다).
+
+- **단계 독립**: 각 HL##은 다른 단계의 결과를 전제하지 않는다. 한 단계의 스크립트 작성·smoke·실행이 실패하면 실패 내용을 `results/hl/overnight/progress.md`와 그 단계 보고서 ④에 적고 다음 단계로 간다. 되돌아와 재시도하지 않는다(단, HL10은 시간이 남으면 언제든 채움).
+- **arm 독립**: smoke(epoch 20)에서 실패한 arm은 한 번만 고쳐 보고, 다시 실패하면 그 arm만 빼고 큐를 시작한다.
+- **시간 상한**: 각 지시서에 "목표 시각"이 있다. 목표 시각까지 큐가 안 끝나면 **새 run 시작을 멈추고**(실행 중인 것은 끝까지), 표를 완료된 run으로만 만들고(seed 수를 표에 적는다) 다음 단계로 간다. 미완 run은 러너가 재시작 가능하므로 HL10 뒤에 시간이 남으면 이어서 돈다.
+- **run 상한**: run 하나가 wall 20분(dblp·electronics는 30분)을 넘기면 러너가 kill하고 `failure.txt`에 timeout이라고 적는다.
+- **진행 기록**: 단계 시작·끝·건너뛰기마다 `results/hl/overnight/progress.md`에 한 줄(`TZ=Asia/Seoul date` 시각, 단계, 상태, 완료/전체 run, 커밋 해시). 이 파일이 아침에 가장 먼저 읽히는 문서다. 커밋한다(`reports/overnight_progress.md`로 복사해 커밋).
+- **세션 복구**: Agent 세션이 끊겨 다시 시작되면 CLAUDE.md → `progress.md` → 마지막 미완료 단계의 지시서 순으로 읽고, 완료된 run은 건너뛰며 이어간다(러너는 report.json이 있는 run을 건너뛴다).
+- **채팅 출력 최소화**: 야간에는 단계 전환 때 한 줄만 쓴다. 표는 아침 보고(마스터 문서 §마감)에 한 번 붙인다. 질문하지 않는다.
+- 야간 모드에서도 변하지 않는 것: 불변 파일 금지, 레이블 사용 규칙(§4), 사전 등록 문구 변경 금지, `naq_exp` push 금지, 0·1번 GPU 금지, 추가 설치 금지.
 
 ## 8. 확정 사실 (Agent가 전제로 삼아도 되는 것)
 
@@ -102,6 +132,8 @@
 - **HL04 G0b(B4, anchor당 10개)**: 순도 `rand` 0.18, `x` 0.27, `choi` 0.42, `ppr` 0.49, `ax` 0.50, `mv` 0.52, `a2x` 0.52, `enc_b` 0.53, `enc_n` 0.53, `comb` 0.535. k가 작을수록 순도↑, middle 선택은 순도를 거의 안 깎음.
 - **HL04 G2(레이블 없음, 5 seed, 1-shot / 5-shot)**: `a2x_top10` 79.90 / 90.65, `mv_top10` 78.83 / 90.34, `mv_mid30` 80.86 / 90.06, `encn_top10` 79.94 / 89.16, `comb_top10` 79.41 / 89.69, `rand10` 80.34 / 88.82, `shuf_comb` 79.95 / 88.19. 순도 0.51–0.53 arm들이 순도 0.18 `rand10`과 같은 수준.
 - **HL04 보조 oracle `p04_choidiff`**(same 4 + 필터 통과 diff 6, 순도 0.40): 85.24 / 90.89 — 같은 순도의 G1 p=0.4(83.92)보다 +1.3. 필터 통과 FP는 무작위 FP보다 덜 해롭다.
+- HL04의 `comb`(hl008)는 **mv + enc_n**(NaQ teacher)이다. HL03/HL04 G0b 채점의 `comb`(hl005)는 mv + enc_b. 이름이 같으니 인용할 때 출처 스크립트를 적는다.
+- **HL05(순도 0.99, B4 X 소구간 층화 3/3/2/2, 5 seed)**: same-class를 소구간 안 Â²X 상위에서 고른 `near` 85.49 ± 0.59 / 92.60, 하위에서 고른 `far` 89.46 ± 0.36 / 94.40. 평균 Â²X near 0.590 / far 0.267, 평균 X 순위 575 / 588. far ≈ G1 p=1.0(89.42). 학습 전 진단(B_Choi ckpt): anchor–query 거리 중앙값 near 0.053 / far 0.244, p_own ≥ 0.95 비율 0.46 / 0.18, 손실 평균 0.41 / 0.96.
 
 ## 9. 운영 메모
 
@@ -111,6 +143,8 @@
 - **평가 에피소드는 seed와 무관하게 같다.** NaQ 원본 `downstream_task_generator`가 `save/downstream_tasks/{dataset}/5way_{shot}shot.pkl` 캐시를 재사용하기 때문이다. seed 간 분산은 학습 쪽만 반영한다. 캐시 pkl은 건드리지 않는다.
 - exp049 query mining은 노드 배치 구성에 따라 동률 노드에서 결과가 미세하게 달라질 수 있다(부동소수 1e-7). `hl_common`의 함수는 exp049와 같은 배치 방식으로 계산한다.
 - 같은 설정 재학습 시 1-shot test가 0.1%p 안에서 흔들린다. 0.3%p 미만의 차이는 판단 근거로 쓰지 않는다.
-- `hl/hl000b_run_oracle.py`는 동시 실행이 최대 2개로 코드에 고정되어 있고, `hl000c` 이후는 3개. 새 러너는 `hl000c`를 복사한다.
+- `hl/hl000b_run_oracle.py`는 동시 실행이 최대 2개로 코드에 고정되어 있고, `hl000c` 이후는 3개. HL06부터 새 러너는 `hl/hl000f_run_hl06.py`(hl000e 복사 + 다중 GPU 슬롯)를 기준으로 복사한다: `--gpus 2,3 --jobs_per_gpu 3`, 각 작업은 자기 슬롯의 GPU 번호로 `CUDA_VISIBLE_DEVICES`를 받는다. summary.csv에 run별 `gpu` 열을 둔다.
 - git identity는 리포 로컬 config에 설정되어 있다(`dragor0123`, 이희태 메일). 전역 설정은 건드리지 않는다.
+- 다른 데이터셋(dblp, Amazon_eletronics)의 고정 에피소드는 `hl/hl000_run.py`가 없으면 `exp026`으로 만든다(seed별). `save/downstream_tasks/<dataset>/5way_{1,5}shot.pkl`이 없으면 **첫 run이 만든다** — 두 run이 동시에 만들면 깨질 수 있으므로 새 데이터셋의 첫 run은 반드시 단독으로 돌리고, 생긴 pkl의 md5를 기록한다.
+- dblp 40,672 노드 / 7,202 특징 / 137 클래스(train 80 + valid 27 / test 30). Amazon_eletronics 42,318 노드 / 8,669 특징 / 167 클래스(train 90 + valid 37 / test 40). X 코사인 dense 행렬이 노드² × 4B ≈ 6.6–7.2GB라 run당 메모리가 Clothing(8.2GB)보다 크다 — GPU당 동시 2개로 시작해 `nvidia-smi`로 여유가 20GB 이상이면 3개로 올린다.
 - **새 서버로 rsync한 비추적 자산**(구 서버와 동일, 2026-10-25): `data/`, `save/downstream_tasks/`(md5 1-shot `5f901727f81903cc12159d280be6915d`, 5-shot `ca3edaca02d541cbc0ee15a2122ef24a`), `save/fixed_episodes/`(seed 1212–1216), `results/hl/p0/Amazon_clothing/{ours/tau_0.3,naq/baseline}/seed_1212/best_1shot.pt`, `results/hl/hl02/diag/node_table_tau0.3.csv`. 그 밖의 `results/hl/` 내용(HL01·HL02의 다른 run 결과)은 새 서버에 없다 — 필요하면 보고서·csv(커밋됨)를 인용한다.
