@@ -108,12 +108,12 @@ def ndp():
     gap = lambda k: all_(k) - float(b[k]["auroc_far50"])  # noqa: E731
     m, m1 = V.MAIN_ARM, "vote_x_hard_1hop"
     rows = [
-        ("NDP001", f"comb_x_sel {t1('comb_x_sel'):.2f} - feat_x {t1('feat_x'):.2f} = {t1('comb_x_sel') - t1('feat_x'):+.2f}"),
+        ("NDP001", f"comb_x_sel {t1('comb_x_sel'):.4f} - feat_x {t1('feat_x'):.4f} = {t1('comb_x_sel') - t1('feat_x'):+.4f}"),
         ("NDP002", f"paired_win_frac_1shot = {a['comb_x_sel']['paired_win_frac_1shot']}"),
-        ("NDP003", f"{m} {t1(m):.2f}; feat_x - 3.0 = {t1('feat_x') - 3:.2f}; {m} - feat_x = {t1(m) - t1('feat_x'):+.2f}"),
-        ("NDP004", f"vote_x_0.1_self {t1('vote_x_0.1_self'):.2f}; {m} {t1(m):.2f}; diff = {t1('vote_x_0.1_self') - t1(m):+.2f}"),
-        ("NDP005", f"{m} {t1(m):.2f}; {m1} {t1(m1):.2f}; diff = {t1(m) - t1(m1):+.2f}"),
-        ("NDP006", f"5-shot delta {float(a['comb_x_sel']['paired_delta_5shot_mean']):+.2f}; 1-shot delta {float(a['comb_x_sel']['paired_delta_1shot_mean']):+.2f}"),
+        ("NDP003", f"{m} {t1(m):.4f}; feat_x - 3.0 = {t1('feat_x') - 3:.4f}; {m} - feat_x = {t1(m) - t1('feat_x'):+.4f}"),
+        ("NDP004", f"vote_x_0.1_self {t1('vote_x_0.1_self'):.4f}; {m} {t1(m):.4f}; diff = {t1('vote_x_0.1_self') - t1(m):+.4f}"),
+        ("NDP005", f"{m} {t1(m):.4f}; {m1} {t1(m1):.4f}; diff = {t1(m) - t1(m1):+.4f}"),
+        ("NDP006", f"5-shot delta {float(a['comb_x_sel']['paired_delta_5shot_mean']):+.4f}; 1-shot delta {float(a['comb_x_sel']['paired_delta_1shot_mean']):+.4f}"),
         ("NDP007", f"{m} {all_(m):.4f} - a2x {all_('a2x'):.4f} = {all_(m) - all_('a2x'):+.4f}"),
         ("NDP008", f"{m} {all_(m):.4f} - own_soft_x_0.1 {all_('own_soft_x_0.1'):.4f} = {all_(m) - all_('own_soft_x_0.1'):+.4f}"),
         ("NDP009", f"{m} all-far50 = {gap(m):.4f}; a2x all-far50 = {gap('a2x'):.4f}"),
