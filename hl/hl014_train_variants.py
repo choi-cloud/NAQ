@@ -340,11 +340,13 @@ def main():
     sha = episode_sha(train_pool)
     print(f"[hl014] query diagnostics: {diag} sha={sha[:12]}", flush=True)
     del original
+    pool_matches_first = None
     if stats is not None:
         stats["episode_sha256"] = sha
         path = Path(args.output_root) / f"episodes_{args.episodes}_seed{args.seed}.json"
+        # sup_strat ranks by Â²X cosine, whose float values differ slightly between processes (CLAUDE.md §9), so its pool may differ between runs: recorded, not fatal.
         if path.exists():
-            assert json.loads(path.read_text())["episode_sha256"] == sha, f"episode pool differs from {path}"
+            pool_matches_first = json.loads(path.read_text())["episode_sha256"] == sha
         elif args.epoch == 2000:
             path.write_text(json.dumps(stats, indent=2), encoding="utf-8")
 
@@ -399,7 +401,7 @@ def main():
             print(f"[hl014] rule {rule} {shot}-shot epoch={best[rule][shot]['epoch']} test_raw={test_raw.mean():.4%} test_l2={test_l2.mean():.4%}", flush=True)
     report = {
         "experiment": "hl014", "arm": arm, "args": vars(args).copy(), "dataset": args.dataset, "seed": args.seed,
-        "diagnostics": diag, "episode_sha256": sha, "evaluation": evaluations, "history": history,
+        "diagnostics": diag, "episode_sha256": sha, "episode_pool_matches_first": pool_matches_first, "episode_stats": stats, "evaluation": evaluations, "history": history,
         "elapsed_seconds": round(time.perf_counter() - start, 2),
         "gpu_peak_allocated_mib": int(torch.cuda.max_memory_allocated() // 2**20) if device.type == "cuda" else None,
     }
