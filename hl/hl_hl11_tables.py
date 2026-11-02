@@ -151,6 +151,7 @@ def prereg():
     a = lambda arm: float(t18[arm]["test_1shot"])  # noqa: E731
     base = a(BASE)
     best = t18["feat_best"]["selected_arm"]
+    sel12 = json.loads((FEAT / "selection.json").read_text())["feat_best_section1_2_only"]
     rp = t19["a2x_rp256_l2 mean ± std (3 s)"]["test_1shot"]
     e0 = {m: float(t21[m]["epoch0_test_1shot"]) for m in METHODS}
     naq, ours = t21["naq"], t21["ours"]
@@ -160,11 +161,11 @@ def prereg():
         ("HLP121", "`a2x_rp256_l2` 3-seed 평균 ≥ 83.0", rp),
         ("HLP122", "`encb_l2` − `encb_raw` (test 1-shot) ∈ [−0.5, +1.0]", f"{a('encb_l2'):.4f} − {a('encb_raw'):.4f} = {a('encb_l2') - a('encb_raw'):+.4f}"),
         ("HLP123", "`a2x_raw` − `a2x_l2` ≤ −1.0", f"{a('a2x_raw'):.4f} − {base:.4f} = {a('a2x_raw') - base:+.4f}"),
-        ("HLP124", "**Q2**: `feat_best`는 `a2x_l2` 또는 `cat_ax_a2x_l2` 또는 `a3x_l2` 중 하나이고, test 1-shot이 `a2x_l2` + 1.5 이내", f"feat_best = `{best}`; test 1-shot {a(best):.4f}; − `a2x_l2` = {a(best) - base:+.4f}"),
+        ("HLP124", "**Q2**: `feat_best`는 `a2x_l2` 또는 `cat_ax_a2x_l2` 또는 `a3x_l2` 중 하나이고, test 1-shot이 `a2x_l2` + 1.5 이내", f"feat_best = `{best}`(후보 §1-2+§1-3); test 1-shot {a(best):.4f}; − `a2x_l2` = {a(best) - base:+.4f}. 후보를 §1-2로 제한하면 `{sel12}`; test 1-shot {a(sel12):.4f}; − `a2x_l2` = {a(sel12) - base:+.4f}"),
         ("HLP125", "`ax_l2` < `a2x_l2` (test 1-shot)", f"{a('ax_l2'):.4f} vs {base:.4f}; 차이 {a('ax_l2') - base:+.4f}"),
         ("HLP126", "`a3x_l2` − `a2x_l2` ∈ [−1.0, +1.0]", f"{a('a3x_l2'):.4f} − {base:.4f} = {a('a3x_l2') - base:+.4f}"),
-        ("HLP127", "**Q3 핵심**: epoch 0 test 1-shot(`ours`·`naq` 평균) ≥ 78.0", f"naq {e0['naq']:.4f}, ours {e0['ours']:.4f}; 평균 {(e0['naq'] + e0['ours']) / 2:.4f}"),
-        ("HLP128", "`ours` test_1shot 궤적 최대값 ≤ `a2x_l2` − 1.0", f"5 seed 평균 궤적 최대 {float(ours['traj_max_test_1shot']):.4f}(epoch {ours['traj_max_epoch_1shot']}); − `a2x_l2` = {float(ours['traj_max_test_1shot']) - base:+.4f}; seed별 최대의 평균 {float(ours['traj_max_test_1shot_per_seed_mean']):.4f}(− `a2x_l2` = {float(ours['traj_max_test_1shot_per_seed_mean']) - base:+.4f})"),
+        ("HLP127", "**Q3 핵심**: epoch 0 test 1-shot(`ours`·`naq` 평균) ≥ 78.0", f"naq {e0['naq']:.4f}, ours {e0['ours']:.4f}; 평균 {(e0['naq'] + e0['ours']) / 2:.4f}. `test_1shot_l2` 열: naq {float(naq['epoch0_test_1shot_l2']):.4f}, ours {float(ours['epoch0_test_1shot_l2']):.4f}"),
+        ("HLP128", "`ours` test_1shot 궤적 최대값 ≤ `a2x_l2` − 1.0", f"5 seed 평균 궤적 최대 {float(ours['traj_max_test_1shot']):.4f}(epoch {ours['traj_max_epoch_1shot']}); − `a2x_l2` = {float(ours['traj_max_test_1shot']) - base:+.4f}; seed별 최대의 평균 {float(ours['traj_max_test_1shot_per_seed_mean']):.4f}(− `a2x_l2` = {float(ours['traj_max_test_1shot_per_seed_mean']) - base:+.4f}). `test_1shot_l2` 궤적 최대 {float(ours['traj_max_test_1shot_l2']):.4f}(epoch {ours['traj_max_epoch_1shot_l2']}); − `a2x_l2` = {float(ours['traj_max_test_1shot_l2']) - base:+.4f}"),
         ("HLP129", "`ours` epoch 0 test 1-shot < best-valid test 1-shot", f"{e0['ours']:.4f} vs {float(ours['best_valid_test_1shot']):.4f}; 차이 {e0['ours'] - float(ours['best_valid_test_1shot']):+.4f}"),
         ("HLP130", "`naq`·`ours` 모두 test_1shot_l2 궤적 최대값 − test_1shot 궤적 최대값 ∈ [−0.5, +1.0]", "; ".join(f"{m} {float(r['traj_max_test_1shot_l2']):.4f} − {float(r['traj_max_test_1shot']):.4f} = {float(r['traj_max_test_1shot_l2']) - float(r['traj_max_test_1shot']):+.4f}" for m, r in (("naq", naq), ("ours", ours)))),
     ]
