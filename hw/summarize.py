@@ -1,4 +1,4 @@
-"""results/hw/<arm>/<ds>/seed<S>/metrics.json -> results/hw/summary.{csv,md}.
+"""$HW_RESULTS_ROOT (default results/hw)/<arm>/<ds>/seed<S>/metrics.json -> results/hw/summary.{csv,md}.
 
     python -m hw.summarize [--ref <arm>]
 
@@ -11,12 +11,13 @@ other runs are listed in summary.md under "not completed".
 import argparse
 import csv
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 
-RESULTS_ROOT = Path("results/hw")
+RESULTS_ROOT = Path(os.environ.get("HW_RESULTS_ROOT", "results/hw"))
 FIELDS = ["arm", "ds", "seed", "best_epoch", "val", "test", "ci95", "elapsed", "orig_pos_weight_mean", "nbr_pos_weight_mean"]
 
 

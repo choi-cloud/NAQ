@@ -3,7 +3,7 @@
     python -m hw.run --arm <arm> --dataset <ds> [--seed S] [--device D]
 
 Training loop transcribed from choi_exps/zip_20261107/exp015.py / exp016.py main().
-Outputs results/hw/<arm>/<ds>/seed<S>/{metrics.json, train.log}. No checkpoints.
+Outputs $HW_RESULTS_ROOT (default results/hw)/<arm>/<ds>/seed<S>/{metrics.json, train.log}. No checkpoints.
 """
 
 import argparse
@@ -32,7 +32,7 @@ from hw.losses import episode_loss
 from hw.neighbors import build_neighbor_lookup, load_selection_embeddings
 from hw.weights import DIAG_KEYS
 
-RESULTS_ROOT = Path("results/hw")
+RESULTS_ROOT = Path(os.environ.get("HW_RESULTS_ROOT", "results/hw"))
 FIRST_EPISODES_LOGGED = 5
 
 
