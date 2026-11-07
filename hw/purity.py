@@ -64,15 +64,18 @@ def support_homophily(labels, id_spt, y_spt, id_query, y_query, neighbor_lookup)
     return int((same & v).sum().item()), int(v.sum().item())
 
 
-def main():
-    cli = parse_cli()
-    started = time.time()
-    cfg = load_config(cli.arm)
-    cfg["seed"] = cli.seed
-    cfg["epochs"] = cli.episodes
-    args = build_args(cfg, cli.dataset)
+def build_pool(dataset, seed=1212, episodes=2000, arm="nbr_bgrl"):
+    """Training episode pool of a seed-<seed> run, built along the hw/run.py path (see module doc).
+
+    Returns a dict: cfg, args, device, data, features, num_nodes, selection {raw, bgrl},
+    raw_normalized, neighbor_lookup, train_pool, labels. Used by main() and hw.measure_positive.
+    """
+    cfg = load_config(arm)
+    cfg["seed"] = seed
+    cfg["epochs"] = episodes
+    args = build_args(cfg, dataset)
     torch.set_num_threads(4)
-    seed_everything(cli.seed)
+    seed_everything(seed)
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
         torch.cuda.set_device(device)
@@ -83,15 +86,28 @@ def main():
     features = data.features
     num_nodes, d = features.shape
     selection = {
-        "raw": load_selection_embeddings("raw", features, cli.dataset, num_nodes, device)[0],
-        "bgrl": load_selection_embeddings("bgrl", features, cli.dataset, num_nodes, device, cfg.get("bgrl_dir"))[0],
+        "raw": load_selection_embeddings("raw", features, dataset, num_nodes, device)[0],
+        "bgrl": load_selection_embeddings("bgrl", features, dataset, num_nodes, device, cfg.get("bgrl_dir"))[0],
     }
     raw_normalized = F.normalize(features.detach(), p=2, dim=1)
     config = [("GCN", (d, 2 * args.latent), True), ("GCN", (2 * args.latent, args.latent), True), ("linear", (args.latent, args.n_way), True)]
     ProtoNet(args, config, data).to(device)  # created only to keep the RNG stream identical to hw/run.py
     neighbor_lookup = build_neighbor_lookup(data.edge_index, num_nodes)
     train_pool = build_train_pool(args, data)
-    labels = data.labels
+    return {
+        "cfg": cfg, "args": args, "device": device, "data": data, "features": features, "num_nodes": num_nodes,
+        "selection": selection, "raw_normalized": raw_normalized, "neighbor_lookup": neighbor_lookup,
+        "train_pool": train_pool, "labels": data.labels,
+    }
+
+
+def main():
+    cli = parse_cli()
+    started = time.time()
+    pool = build_pool(cli.dataset, cli.seed, cli.episodes, cli.arm)
+    cfg, args, device = pool["cfg"], pool["args"], pool["device"]
+    selection, raw_normalized, neighbor_lookup = pool["selection"], pool["raw_normalized"], pool["neighbor_lookup"]
+    train_pool, labels = pool["train_pool"], pool["labels"]
 
     generators = {}
     for space in SPACES:

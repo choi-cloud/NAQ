@@ -1,0 +1,444 @@
+"""HW04m: train-free purity of positive candidates (hop / PPR / degree / curvature).
+
+    python -m hw.measure_positive --dataset <ds> [--seed 1212] [--episodes 2000]
+    python -m hw.measure_positive --selftest
+
+No training. Graph / features / labels come from hw.purity.build_pool (the hw/run.py path:
+seed -> load_data -> ... -> train_pool), so the episode-conditioned rows use the seed-<S> pool.
+measurement-only label use: every GT label read here feeds only these measurements.
+Aggregation: macro = per-support-node ratio averaged over nodes whose set is non-empty;
+micro = pooled over all (support, candidate) pairs. Supports = all nodes.
+GPU (device 0 of the visible set): PPR power iteration (and the episode pool, as in hw.purity).
+Outputs: results/measure/HW04m_<ds>.{json,md}, results/measure/HW04m_<ds>_nodes.npz,
+cache/ppr/<ds>_a{015,050}_top100.pt, cache/curv/<ds>.pt.
+"""
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import scipy.sparse as sp
+import torch
+
+from hw import structure as st
+
+OUT_DIR = Path("results/measure")
+PPR_DIR = Path("cache/ppr")
+CURV_DIR = Path("cache/curv")
+ALPHAS = (0.15, 0.5)
+PPR_BINS = ((1, 5), (6, 10), (11, 20), (21, 50), (51, 100))
+TOPM = (1, 5)
+SPACES = ("raw", "a2x")
+NODE_CHUNK = 1024
+
+
+# ====================================================================== selftest (G-toy)
+def _graph(n, edges):
+    e = np.array(edges, dtype=np.int64).T
+    return st.normalize_graph(e, n)
+
+
+def selftest():
+    checks = []
+
+    def check(name, got, want, tol=1e-9):
+        ok = abs(float(got) - float(want)) <= tol
+        checks.append({"check": name, "got": float(got), "want": float(want), "ok": bool(ok)})
+
+    def edge_curv(a, u, v):
+        c = st.curvature(a)
+        i = int(np.nonzero((c["u"] == min(u, v)) & (c["v"] == max(u, v)))[0][0])
+        return c["t"][i], c["jl"][i], c["forman"][i], st.degrees(a)[u], st.degrees(a)[v]
+
+    p5 = _graph(5, [(0, 1), (1, 2), (2, 3), (3, 4)])
+    t, jl, fo, du, dv = edge_curv(p5, 1, 2)
+    check("P5 middle edge t", t, 0); check("P5 middle edge d_u", du, 2); check("P5 middle edge d_v", dv, 2)
+    check("P5 middle edge jl", jl, 0.0); check("P5 middle edge forman", fo, 0.0)
+    # tree: u=0, v=1 each with two more leaves
+    tree = _graph(6, [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5)])
+    t, jl, fo, du, dv = edge_curv(tree, 0, 1)
+    check("3-3 tree edge t", t, 0); check("3-3 tree edge d_u", du, 3); check("3-3 tree edge d_v", dv, 3)
+    check("3-3 tree edge jl", jl, -2.0 / 3.0); check("3-3 tree edge forman", fo, -2.0)
+    k4 = _graph(4, [(i, j) for i in range(4) for j in range(i + 1, 4)])
+    t, jl, fo, du, dv = edge_curv(k4, 0, 1)
+    check("K4 edge t", t, 2); check("K4 edge d_u", du, 3); check("K4 edge d_v", dv, 3)
+    check("K4 edge jl", jl, 2.0 / 3.0); check("K4 edge forman", fo, 4.0)
+    # hop sets: P5 middle node (2): H1 = {1,3}, H2 = {0,4}, H3 = {}
+    h1, h2, h3 = st.hop_sets_dense(p5, np.array([2]))
+    check("P5 node 2 |H1|", h1.sum(), 2); check("P5 node 2 |H2|", h2.sum(), 2); check("P5 node 2 |H3|", h3.sum(), 0)
+    check("P5 node 2 H1 == {1,3}", float(set(np.nonzero(h1[0])[0]) == {1, 3}), 1.0)
+    check("P5 node 2 H2 == {0,4}", float(set(np.nonzero(h2[0])[0]) == {0, 4}), 1.0)
+    # PPR: row sum ~ 1, self score >= alpha
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    for gname, g in (("P5", p5), ("K4", k4), ("tree", tree)):
+        for alpha in ALPHAS:
+            r = st.ppr_topk(g, alpha, k=3, chunk=2, device=device)
+            check(f"PPR {gname} a={alpha} max |row_sum - 1|", np.abs(r["row_sum"] - 1).max(), 0.0, tol=1e-5)
+            check(f"PPR {gname} a={alpha} min(self - alpha) >= 0", float((r["self_score"] - alpha).min() >= -1e-7), 1.0)
+    ok = all(c["ok"] for c in checks)
+    return ok, checks
+
+
+# ====================================================================== helpers
+def summarize_row(per_node_same, per_node_size, mask=None):
+    """macro / micro purity, coverage, median size (over non-empty nodes) from per-node counts."""
+    same = np.asarray(per_node_same, dtype=np.float64)
+    size = np.asarray(per_node_size, dtype=np.float64)
+    if mask is not None:
+        same, size = same[mask], size[mask]
+    nonempty = size > 0
+    n = size.size
+    return {
+        "macro": float(np.mean(same[nonempty] / size[nonempty])) if nonempty.any() else None,
+        "micro": float(same.sum() / size.sum()) if size.sum() > 0 else None,
+        "coverage": float(nonempty.mean()) if n else None,
+        "size_median": float(np.median(size[nonempty])) if nonempty.any() else None,
+        "nodes": int(n),
+        "pairs": int(size.sum()),
+    }
+
+
+def edge_row(same_edge, mask):
+    m = np.asarray(mask, dtype=bool)
+    return {"edges": int(m.sum()), "purity": float(same_edge[m].mean()) if m.any() else None}
+
+
+def topm_counts(score, valid, same, m):
+    """score/valid/same [B, C]; choose top-m valid by score per row -> (same count, chosen count)."""
+    s = np.where(valid, score, -np.inf)
+    mm = min(m, s.shape[1])
+    order = np.argpartition(-s, kth=mm - 1, axis=1)[:, :mm] if mm < s.shape[1] else np.argsort(-s, axis=1)[:, :mm]
+    rows = np.arange(s.shape[0])[:, None]
+    chosen_valid = valid[rows, order]
+    return (same[rows, order] & chosen_valid).sum(1), chosen_valid.sum(1)
+
+
+# ====================================================================== main measurement
+def measure(dataset, seed, episodes):
+    from hw.purity import build_pool  # noqa: import here so --selftest needs no data
+    from hw.neighbors import select_neighbors_pick
+
+    t0 = time.time()
+    timings = {}
+    pool = build_pool(dataset, seed, episodes)
+    data, device = pool["data"], pool["device"]
+    timings["build_pool"] = round(time.time() - t0, 2)
+    n = pool["num_nodes"]
+    y = pool["labels"].detach().cpu().numpy().astype(np.int64)  # measurement-only label use
+    num_classes = int(y.max()) + 1
+    a = st.normalize_graph(data.edge_index.detach().cpu().numpy(), n)
+    deg = st.degrees(a)
+    eu, ev = st.undirected_edges(a)
+    same_edge = y[eu] == y[ev]  # measurement-only label use
+    class_frac = np.bincount(y, minlength=num_classes) / n  # measurement-only label use
+    chance = float((class_frac ** 2).sum())
+    raw_edge = data.edge_index.detach().cpu().numpy()
+    graph = {
+        "nodes": int(n),
+        "undirected_edges": int(eu.size),
+        "isolated_nodes": int((deg == 0).sum()),
+        "edge_index_columns": int(raw_edge.shape[1]),
+        "edge_index_self_loops": int((raw_edge[0] == raw_edge[1]).sum()),
+        "edge_homophily": float(same_edge.mean()),
+        "chance": chance,
+        "num_classes": num_classes,
+        "degree_mean": float(deg.mean()),
+        "degree_median": float(np.median(deg)),
+        "degree_max": int(deg.max()),
+    }
+
+    # ---- features (CPU)
+    torch.set_num_threads(32)
+    x = pool["features"].detach().float().cpu()
+    adj_cpu = data.adj.detach().cpu().coalesce()
+    a2x = st.a2x_trainfree(adj_cpu, x)
+    a2x_inline = torch.sparse.mm(adj_cpu, torch.sparse.mm(adj_cpu, x))  # literal hw/trainfree.py expression
+    # independent Â = D^-1/2 (A + I) D^-1/2 from the normalized graph
+    ai = (a + sp.eye(n, format="csr")).tocoo()
+    dd = np.asarray(ai.sum(1)).ravel()
+    dis = 1.0 / np.sqrt(dd)
+    ref_adj = torch.sparse_coo_tensor(np.vstack([ai.row, ai.col]), (dis[ai.row] * ai.data * dis[ai.col]).astype(np.float32), (n, n)).coalesce()
+    a2x_indep = torch.sparse.mm(ref_adj, torch.sparse.mm(ref_adj, x))
+    feature_check = {
+        "a2x_source": "hw/trainfree.py has no exposed function; formula moved to hw.structure.a2x_trainfree",
+        "max_abs_diff_vs_trainfree_expression": float((a2x - a2x_inline).abs().max().item()),
+        "max_abs_diff_vs_independent_adj_build": float((a2x - a2x_indep).abs().max().item()),
+        "feature_dim": int(x.shape[1]),
+    }
+    feats = {"raw": st.l2_rows(x), "a2x": st.l2_rows(a2x)}
+    del a2x_inline, a2x_indep
+    timings["features"] = round(time.time() - t0, 2)
+
+    # ---- PPR (GPU)
+    nonisolated = np.nonzero(deg > 0)[0]
+    ppr = {}
+    ppr_meta = {}
+    PPR_DIR.mkdir(parents=True, exist_ok=True)
+    for alpha in ALPHAS:
+        r = st.ppr_topk(a, alpha, k=100, chunk=2048, device=str(device), sources=nonisolated)
+        full_idx = np.full((n, r["idx"].shape[1]), -1, dtype=np.int64)
+        full_score = np.zeros((n, r["idx"].shape[1]), dtype=np.float32)
+        full_idx[nonisolated] = r["idx"]
+        full_score[nonisolated] = r["score"]
+        ppr[alpha] = full_idx
+        tag = f"a{int(round(alpha * 100)):03d}"
+        torch.save({"dataset": dataset, "alpha": alpha, "idx": torch.from_numpy(full_idx), "score": torch.from_numpy(full_score),
+                    "isolated_excluded": torch.from_numpy(np.nonzero(deg == 0)[0]), "note": "self excluded; -1 = none"},
+                   PPR_DIR / f"{dataset}_{tag}_top100.pt")
+        ppr_meta[tag] = {
+            "iters_max": int(max(r["iters"])), "iters_min": int(min(r["iters"])),
+            "final_max_delta_max": float(max(r["max_delta"])),
+            "row_sum_max_abs_dev": float(np.abs(r["row_sum"] - 1).max()),
+            "self_score_min": float(r["self_score"].min()),
+            "sources": int(nonisolated.size), "isolated_skipped": int((deg == 0).sum()),
+            "path": str(PPR_DIR / f"{dataset}_{tag}_top100.pt"),
+        }
+    timings["ppr"] = round(time.time() - t0, 2)
+
+    # ---- per-node counts (CPU, node chunks)
+    rows_same, rows_size = {}, {}
+
+    def put(key, idx, same_cnt, size_cnt):
+        if key not in rows_same:
+            rows_same[key] = np.zeros(n, dtype=np.int64)
+            rows_size[key] = np.zeros(n, dtype=np.int64)
+        rows_same[key][idx] = same_cnt
+        rows_size[key][idx] = size_cnt
+
+    hop_comp = {}  # (alpha tag, bin) -> counts of hop1 / hop2 / hop>=3
+    feat_np = {s: feats[s].numpy() for s in SPACES}
+    for start in range(0, n, NODE_CHUNK):
+        idx = np.arange(start, min(n, start + NODE_CHUNK))
+        h = st.hop_sets_dense(a, idx)
+        same_lab = y[None, :] == y[idx][:, None]  # measurement-only label use
+        cos = {s: (feats[s][idx] @ feats[s].T).numpy() for s in SPACES}
+        for k, hk in enumerate(h, 1):
+            put(f"hop{k}", idx, (hk & same_lab).sum(1), hk.sum(1))
+            if k <= 3:
+                for s in SPACES:
+                    for m in TOPM:
+                        sc, sz = topm_counts(cos[s], hk, same_lab, m)
+                        put(f"hop{k}_top{m}_{s}", idx, sc, sz)
+        rows_b = np.arange(idx.size)[:, None]
+        for alpha in ALPHAS:
+            tag = f"a{int(round(alpha * 100)):03d}"
+            cand = ppr[alpha][idx]  # [B, 100]
+            valid = cand >= 0
+            cc = np.where(valid, cand, 0)
+            same_c = same_lab[rows_b, cc] & valid
+            in1 = h[0][rows_b, cc] & valid
+            in2 = h[1][rows_b, cc] & valid
+            for lo, hi in PPR_BINS:
+                sl = slice(lo - 1, hi)
+                key = f"ppr{tag[1:]}_{lo}-{hi}"
+                put(key, idx, same_c[:, sl].sum(1), valid[:, sl].sum(1))
+                c = hop_comp.setdefault((tag, f"{lo}-{hi}"), np.zeros(4, dtype=np.int64))
+                c += [in1[:, sl].sum(), in2[:, sl].sum(), (valid[:, sl] & ~in1[:, sl] & ~in2[:, sl]).sum(), valid[:, sl].sum()]
+            put(f"ppr{tag[1:]}_1-10", idx, same_c[:, :10].sum(1), valid[:, :10].sum(1))
+            if alpha == 0.15:
+                c20, v20, s20 = cc[:, :20], valid[:, :20], same_c[:, :20]
+                for s in SPACES:
+                    sc20 = cos[s][rows_b, c20]
+                    for m in TOPM:
+                        a_same, a_size = topm_counts(sc20, v20, s20, m)
+                        put(f"ppr015_top20_top{m}_{s}", idx, a_same, a_size)
+    timings["node_loop"] = round(time.time() - t0, 2)
+
+    # ---- M1 / M2 tables
+    m1 = {key: summarize_row(rows_same[key], rows_size[key]) for key in rows_same if key.startswith("hop")}
+    m2 = {key: summarize_row(rows_same[key], rows_size[key]) for key in rows_same if key.startswith("ppr")}
+    for (tag, b), c in hop_comp.items():
+        key = f"ppr{tag[1:]}_{b}"
+        m2[key]["hop_composition"] = {"hop1": float(c[0] / c[3]) if c[3] else None, "hop2": float(c[1] / c[3]) if c[3] else None, "hop3plus": float(c[2] / c[3]) if c[3] else None}
+    g_consist = {
+        "hop1_micro": m1["hop1"]["micro"],
+        "edge_homophily_both_directions": float(np.concatenate([same_edge, same_edge]).mean()),
+    }
+    g_consist["abs_diff"] = abs(g_consist["hop1_micro"] - g_consist["edge_homophily_both_directions"])
+    g_consist["pass"] = bool(g_consist["abs_diff"] < 1e-12)
+
+    # ---- M3 degree quintiles
+    dbin, dedges = st.quantile_bins(deg, 5)
+    m3 = {"edges": [float(e) for e in dedges], "bins": []}
+    for b in range(5):
+        mask = dbin == b
+        row = {"bin": f"Q{b + 1}", "nodes": int(mask.sum()),
+               "degree_min": int(deg[mask].min()) if mask.any() else None, "degree_max": int(deg[mask].max()) if mask.any() else None}
+        for key in ("hop1", "hop2", "hop2_top1_a2x", "ppr015_1-10"):
+            row[key] = summarize_row(rows_same[key], rows_size[key], mask)
+        m3["bins"].append(row)
+    # episode-conditioned rows (pool of seed, raw selector, pick max)
+    ep = {k: [] for k in ("support", "query_eq_support", "nbr_eq_support", "nbr_eq_query", "fallback")}
+    labels_t = pool["labels"]
+    sel_raw = pool["selection"]["raw"]
+    with torch.no_grad():
+        for id_spt, y_spt, id_query, y_query in pool["train_pool"]:
+            s_ids = torch.as_tensor(id_spt, dtype=torch.long, device=device).flatten()
+            q_ids = torch.as_tensor(id_query, dtype=torch.long, device=device).flatten()
+            sp_ = torch.as_tensor(y_spt, dtype=torch.long, device=device).flatten()
+            qp_ = torch.as_tensor(y_query, dtype=torch.long, device=device).flatten()
+            out = {}
+            select_neighbors_pick(sel_raw, s_ids, q_ids, pool["neighbor_lookup"], 0, "max", None, out)
+            qi, si = (qp_[:, None] == sp_[None, :]).nonzero(as_tuple=True)
+            gq, gs = labels_t[q_ids[qi]], labels_t[s_ids[si]]  # measurement-only label use
+            gn = labels_t[out["selected"][qi, si]]  # measurement-only label use
+            ep["support"].append(s_ids[si].cpu().numpy())
+            ep["query_eq_support"].append((gq == gs).cpu().numpy())
+            ep["nbr_eq_support"].append((gn == gs).cpu().numpy())
+            ep["nbr_eq_query"].append((gn == gq).cpu().numpy())
+            ep["fallback"].append((~out["has_neighbor"][qi, si]).cpu().numpy())
+    ep = {k: np.concatenate(v) for k, v in ep.items()}
+    ep_bin = dbin[ep["support"]]
+    m3["episode_rows"] = []
+    for b in range(5):
+        mask = ep_bin == b
+        m3["episode_rows"].append({"bin": f"Q{b + 1}", "pairs": int(mask.sum()),
+                                   **{k: (float(ep[k][mask].mean()) if mask.any() else None) for k in ("query_eq_support", "nbr_eq_support", "nbr_eq_query", "fallback")}})
+    m3["episode_all"] = {"pairs": int(ep_bin.size), **{k: float(ep[k].mean()) for k in ("query_eq_support", "nbr_eq_support", "nbr_eq_query", "fallback")}}
+    timings["degree_episode"] = round(time.time() - t0, 2)
+
+    # ---- M4 curvature
+    cv = st.curvature(a)
+    assert np.array_equal(cv["u"], eu) and np.array_equal(cv["v"], ev)
+    CURV_DIR.mkdir(parents=True, exist_ok=True)
+    torch.save({"dataset": dataset, "edge_index": torch.from_numpy(np.vstack([eu, ev])), "t": torch.from_numpy(cv["t"]),
+                "forman": torch.from_numpy(cv["forman"]), "jl": torch.from_numpy(cv["jl"]), "note": "undirected, u < v"}, CURV_DIR / f"{dataset}.pt")
+    jl, fo, t = cv["jl"], cv["forman"], cv["t"]
+    jl_sign = np.where(np.abs(jl) < st.ZERO_TOL, 0, np.sign(jl))
+    m4 = {"cache": str(CURV_DIR / f"{dataset}.pt"),
+          "sign": {"jl<0": edge_row(same_edge, jl_sign < 0), "jl=0": edge_row(same_edge, jl_sign == 0), "jl>0": edge_row(same_edge, jl_sign > 0)},
+          "t": {"t=0": edge_row(same_edge, t == 0), "t>=1": edge_row(same_edge, t >= 1)}}
+    for name, vals, mask in (("jl_quintile", jl, None), ("forman_quintile", fo, None), ("jl_quintile_t>=1", jl, t >= 1)):
+        sel = np.ones(jl.size, dtype=bool) if mask is None else mask
+        bins, edges = st.quantile_bins(vals[sel], 5)
+        m4[name] = {"edges": [float(e) for e in edges],
+                    "bins": [{"bin": f"Q{b + 1}", "min": float(vals[sel][bins == b].min()) if (bins == b).any() else None,
+                              "max": float(vals[sel][bins == b].max()) if (bins == b).any() else None,
+                              **edge_row(same_edge[sel], bins == b)} for b in range(5)]}
+    # node-centric: neighbors via jl > 0 edges vs jl <= 0 edges
+    yoh = sp.csr_matrix((np.ones(n), (np.arange(n), y)), shape=(n, num_classes))  # measurement-only label use
+    node_rows = {}
+    for name, emask in (("nbr_jl>0", jl_sign > 0), ("nbr_jl<=0", jl_sign <= 0)):
+        uu, vv = eu[emask], ev[emask]
+        sub = sp.coo_matrix((np.ones(2 * uu.size), (np.concatenate([uu, vv]), np.concatenate([vv, uu]))), shape=(n, n)).tocsr()
+        cnt = sub @ yoh
+        same_cnt = np.asarray(cnt[np.arange(n), y]).ravel()
+        size_cnt = np.asarray(sub.sum(1)).ravel()
+        node_rows[name] = summarize_row(same_cnt, size_cnt)
+        rows_same[name], rows_size[name] = same_cnt.astype(np.int64), size_cnt.astype(np.int64)
+    m4["node_centric"] = node_rows
+    # per-node curvature summary
+    inc_sum = np.bincount(eu, weights=jl, minlength=n) + np.bincount(ev, weights=jl, minlength=n)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        node_jl_mean = np.where(deg > 0, inc_sum / np.maximum(deg, 1), np.nan)
+    timings["curvature"] = round(time.time() - t0, 2)
+
+    result = {
+        "dataset": dataset, "seed": seed, "episodes": episodes,
+        "graph": graph, "feature_check": feature_check, "ppr": ppr_meta,
+        "M1": m1, "M2": m2, "M3": m3, "M4": m4, "G_consist": g_consist,
+        "timings_cumulative_s": timings,
+        "note": "no training; measurement-only label use; macro primary, micro secondary; size_median over non-empty nodes",
+    }
+    nodes = {"degree": deg, "label": y, "degree_bin": dbin, "node_jl_mean": node_jl_mean.astype(np.float32)}
+    for key in ("hop1", "hop2", "hop3", "hop2_top1_a2x", "ppr015_1-10", "nbr_jl>0", "nbr_jl<=0"):
+        safe = key.replace("-", "_").replace(">", "gt").replace("<=", "le")
+        nodes[f"{safe}_same"] = rows_same[key].astype(np.int32)
+        nodes[f"{safe}_size"] = rows_size[key].astype(np.int32)
+    return result, nodes
+
+
+# ====================================================================== markdown
+def _f(v, d=4):
+    return "—" if v is None else f"{v:.{d}f}"
+
+
+def _pr(r):
+    """purity cell: macro (micro)."""
+    return f"{_f(r['macro'])} ({_f(r['micro'])})"
+
+
+def to_markdown(r):
+    g = r["graph"]
+    L = [f"# HW04m — {r['dataset']} (train-free, seed {r['seed']}, {r['episodes']} episodes)", "",
+         f"chance = Σ p_c² = **{g['chance']:.4f}** · edge homophily = {g['edge_homophily']:.4f} · 순도 셀 = macro (micro)", "",
+         "## 그래프", "", "| 노드 | 무향 edge | 고립 노드 | 클래스 | 차수 평균 / 중앙값 / 최대 |", "|---|---|---|---|---|",
+         f"| {g['nodes']} | {g['undirected_edges']} | {g['isolated_nodes']} | {g['num_classes']} | {g['degree_mean']:.2f} / {g['degree_median']:.0f} / {g['degree_max']} |", "",
+         f"Â²X 확인: trainfree 식 대비 max |Δ| {r['feature_check']['max_abs_diff_vs_trainfree_expression']:.2e}, 독립 Â 구성 대비 {r['feature_check']['max_abs_diff_vs_independent_adj_build']:.2e}", "",
+         "## M1 hop", "", f"chance {g['chance']:.4f}", "", "| 행 | 순도 macro (micro) | coverage | 크기 중앙값 |", "|---|---|---|---|"]
+    order = [f"hop{k}" for k in (1, 2, 3)] + [f"hop{k}_top{m}_{s}" for k in (1, 2, 3) for s in SPACES for m in TOPM]
+    for key in order:
+        x = r["M1"][key]
+        L.append(f"| {key} | {_pr(x)} | {_f(x['coverage'])} | {_f(x['size_median'], 0)} |")
+    gc = r["G_consist"]
+    L += ["", f"G-consist: hop1 micro {gc['hop1_micro']:.6f} vs edge homophily {gc['edge_homophily_both_directions']:.6f}, |Δ| {gc['abs_diff']:.1e} → {'통과' if gc['pass'] else '실패'}", "",
+          "## M2 PPR", "", f"chance {g['chance']:.4f}", "", "| 행 | 순도 macro (micro) | coverage | hop1 / hop2 / hop≥3 비율 |", "|---|---|---|---|"]
+    for alpha in ("015", "050"):
+        for lo, hi in PPR_BINS:
+            x = r["M2"][f"ppr{alpha}_{lo}-{hi}"]
+            hc = x["hop_composition"]
+            L.append(f"| ppr{alpha}_{lo}-{hi} | {_pr(x)} | {_f(x['coverage'])} | {_f(hc['hop1'], 3)} / {_f(hc['hop2'], 3)} / {_f(hc['hop3plus'], 3)} |")
+        x = r["M2"][f"ppr{alpha}_1-10"]
+        L.append(f"| ppr{alpha}_1-10 | {_pr(x)} | {_f(x['coverage'])} | |")
+    for s in SPACES:
+        for m in TOPM:
+            x = r["M2"][f"ppr015_top20_top{m}_{s}"]
+            L.append(f"| ppr015_top20_top{m}_{s} | {_pr(x)} | {_f(x['coverage'])} | |")
+    m3 = r["M3"]
+    L += ["", "## M3 차수 5분위", "", f"chance {g['chance']:.4f} · 분위 경계 {m3['edges']}", "",
+          "| bin | 노드 | 차수 범위 | hop1 | hop2 | hop2_top1_a2x | ppr015_1-10 | coverage hop1 / hop2 / ppr |", "|---|---|---|---|---|---|---|---|"]
+    for b in m3["bins"]:
+        L.append(f"| {b['bin']} | {b['nodes']} | {b['degree_min']}–{b['degree_max']} | {_pr(b['hop1'])} | {_pr(b['hop2'])} | {_pr(b['hop2_top1_a2x'])} | {_pr(b['ppr015_1-10'])} | {_f(b['hop1']['coverage'], 3)} / {_f(b['hop2']['coverage'], 3)} / {_f(b['ppr015_1-10']['coverage'], 3)} |")
+    L += ["", "에피소드 조건 행 (seed 풀, raw·max 선택, 자기 클래스 (query, support) 쌍, support 차수 bin)", "",
+          "| bin | 쌍 | query_eq_support | nbr_eq_support | nbr_eq_query | fallback_frac |", "|---|---|---|---|---|---|"]
+    for b in m3["episode_rows"] + [{"bin": "전체", **m3["episode_all"]}]:
+        L.append(f"| {b['bin']} | {b['pairs']} | {_f(b['query_eq_support'])} | {_f(b['nbr_eq_support'])} | {_f(b['nbr_eq_query'])} | {_f(b['fallback'])} |")
+    m4 = r["M4"]
+    L += ["", "## M4 곡률 (edge 순도 = y_u == y_v)", "", f"chance {g['chance']:.4f}", "", "| bin | edge 수 | 순도 |", "|---|---|---|"]
+    for k, v in list(m4["sign"].items()) + list(m4["t"].items()):
+        L.append(f"| {k} | {v['edges']} | {_f(v['purity'])} |")
+    for name in ("jl_quintile", "forman_quintile", "jl_quintile_t>=1"):
+        L += ["", f"{name} (경계 {[round(e, 4) for e in m4[name]['edges']]})", "", "| bin | 범위 | edge 수 | 순도 |", "|---|---|---|---|"]
+        for b in m4[name]["bins"]:
+            L.append(f"| {b['bin']} | {_f(b['min'])} – {_f(b['max'])} | {b['edges']} | {_f(b['purity'])} |")
+    L += ["", "노드 중심 (support의 1-hop을 곡률 부호로 나눔)", "", "| 행 | 순도 macro (micro) | coverage | 크기 중앙값 |", "|---|---|---|---|"]
+    for k, v in m4["node_centric"].items():
+        L.append(f"| {k} | {_pr(v)} | {_f(v['coverage'])} | {_f(v['size_median'], 0)} |")
+    return "\n".join(L) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description="HW04m train-free positive-candidate purity")
+    parser.add_argument("--dataset", choices=["Cora_full", "Amazon_clothing"])
+    parser.add_argument("--seed", type=int, default=1212)
+    parser.add_argument("--episodes", type=int, default=2000)
+    parser.add_argument("--selftest", action="store_true")
+    cli = parser.parse_args()
+    if cli.selftest:
+        ok, checks = selftest()
+        for c in checks:
+            print(f"{'OK ' if c['ok'] else 'FAIL'} {c['check']}: got {c['got']:.12g} want {c['want']:.12g}")
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        (OUT_DIR / "HW04m_selftest.json").write_text(json.dumps({"pass": ok, "checks": checks}, indent=2), encoding="utf-8")
+        print("G-toy", "PASS" if ok else "FAIL")
+        sys.exit(0 if ok else 1)
+    if not cli.dataset:
+        parser.error("--dataset required")
+    started = time.time()
+    result, nodes = measure(cli.dataset, cli.seed, cli.episodes)
+    result["elapsed_seconds"] = round(time.time() - started, 2)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUT_DIR / f"HW04m_{cli.dataset}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    (OUT_DIR / f"HW04m_{cli.dataset}.md").write_text(to_markdown(result), encoding="utf-8")
+    np.savez_compressed(OUT_DIR / f"HW04m_{cli.dataset}_nodes.npz", **nodes)
+    print(to_markdown(result))
+    print(f"elapsed {result['elapsed_seconds']} s; G-consist {'PASS' if result['G_consist']['pass'] else 'FAIL'}")
+    if not result["G_consist"]["pass"]:
+        sys.exit(4)
+
+
+if __name__ == "__main__":
+    main()

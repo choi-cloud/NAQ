@@ -52,11 +52,13 @@ NAQ/
 ├── hw/                            # 트랙 코드. 실행 진입점은 hw/run.py
 │   ├── run.py config.py episodes.py neighbors.py losses.py weights.py evaluate.py summarize.py
 │   ├── run_queue.sh repro_choi.sh
-│   └── (HW03a+) purity.py
+│   ├── (HW03a+) purity.py
+│   └── (HW04m+) structure.py measure_positive.py   # 학습 없는 측정, 학습 코드에서 import하지 않음
 ├── configs/hw.json
 ├── env/taskns_iislab4.yml
 ├── results/hw/                    # seio
 ├── results/hw_iislab4/            # iislab4
+├── results/measure/               # 학습 없는 결정적 측정 (서버 무관, HW04m+)
 ├── reports/  instructions/
 ```
 
@@ -130,7 +132,8 @@ NAQ/
 | HWP007–013 | HW02 | 완료 (충족 007·008, 미충족 009–013) |
 | HWP014–023 | HW03a_iislab4 | 배정 |
 | HWP024–025 | HW03a_seio | 배정 |
-| HWP026– | 다음 | 미배정 |
+| HWP026–032 | HW04m_iislab4 | 배정 |
+| HWP033– | 다음 | 미배정 |
 
 ## 9. 현재 상태와 계획
 
