@@ -92,6 +92,8 @@ def select_neighbors_pick(selection_embeddings_normalized, support_ids, query_id
     selection_out (dict or None): receives `selected` [Q, S], `has_neighbor` [Q, S] and
     `valid_count` [Q, S] (eligible neighbors per pair) for diagnostics; no effect on selection.
     """
+    if pick == SUP_COS:  # HW04a: separate path; the max/contrast/random lines below are unchanged
+        return select_neighbors_sup_cos(neighbor_lookup, support_ids, query_ids, selection_out)
     if pick not in PICKS:
         raise ValueError(f"pick must be one of {PICKS}, got {pick!r}")
     if pick == "max" and selection_out is None:
@@ -142,3 +144,113 @@ def _eligible(support_ids, query_ids, neighbor_lookup, max_neighbors):
             neighbor_valid[i, : len(nodes)] = True
     valid = neighbor_valid[None, :, :] & (neighbor_ids[None, :, :] != query_ids[:, None, None])
     return valid, (neighbor_ids, sizes)
+
+
+# ---------------------------------------------------------------- HW04a: pick "sup_cos"
+SUP_COS = "sup_cos"
+ALL_PICKS = PICKS + (SUP_COS,)
+SUP_COS_HOPS = (1, 2)
+SUP_COS_SPACES = ("a2x", "raw")
+SUP_COS_TABLE_CHUNK = 1024
+
+
+class SupCosCandidates:
+    """Candidate source for pick "sup_cos", passed in the `neighbor_lookup` slot of
+    `select_neighbors_pick` (hw/losses.py forwards it unchanged).
+
+    hop 1: candidates = the eligible 1-hop neighbors of `_eligible` (same set as pick "max");
+           argmax cos(candidate, support) in `space` (L2-normalized rows of `embeddings`).
+    hop 2: candidates = nodes at shortest-path distance exactly 2 (hw.structure.hop_sets_dense on
+           hw.structure.normalize_graph). `top2` [N, 2] = per node the two hop-2 nodes with the
+           largest cos to it (-1 = none), computed once before training; no max_neighbors cap.
+    Deterministic, no RNG.
+    """
+
+    def __init__(self, hop, space, embeddings, neighbor_lookup, top2=None, hop2_size=None):
+        self.hop, self.space = int(hop), space
+        self.embeddings = embeddings
+        self.neighbor_lookup = neighbor_lookup
+        self.top2 = top2
+        self.hop2_size = hop2_size
+
+
+@torch.no_grad()
+def sup_cos_space(space, features, adj):
+    """L2-normalized rows of X (raw) or of Â²X (a2x, hw.structure.a2x_trainfree, Â = data.adj)."""
+    from hw import structure
+
+    x = features.detach().float()
+    if space == "raw":
+        return structure.l2_rows(x)
+    if space == "a2x":
+        return structure.l2_rows(structure.a2x_trainfree(adj.coalesce(), x))
+    raise ValueError(f"pick_space must be one of {SUP_COS_SPACES}, got {space!r}")
+
+
+@torch.no_grad()
+def hop2_top2_table(embeddings, edge_index, num_nodes, chunk=SUP_COS_TABLE_CHUNK):
+    """Per node: the two distance-2 nodes with the largest cos (ties: torch.topk order), -1 if
+    fewer exist; and the size of its distance-2 set."""
+    import numpy as np
+
+    from hw import structure
+
+    a = structure.normalize_graph(edge_index.detach().cpu().numpy(), num_nodes)
+    device = embeddings.device
+    top2 = torch.full((num_nodes, 2), -1, dtype=torch.long, device=device)
+    size = torch.zeros(num_nodes, dtype=torch.long, device=device)
+    for start in range(0, num_nodes, chunk):
+        rows = np.arange(start, min(num_nodes, start + chunk))
+        _, h2, _ = structure.hop_sets_dense(a, rows)
+        mask = torch.as_tensor(h2, device=device)
+        cos = embeddings[start:start + rows.size] @ embeddings.T
+        cos = cos.masked_fill(~mask, -torch.inf)
+        score, idx = cos.topk(2, dim=1)
+        idx[~torch.isfinite(score)] = -1
+        top2[start:start + rows.size] = idx
+        size[start:start + rows.size] = mask.sum(dim=1)
+    return top2, size
+
+
+def build_sup_cos(hop, space, features, adj, edge_index, num_nodes, neighbor_lookup):
+    if int(hop) not in SUP_COS_HOPS:
+        raise ValueError(f"pick_hop must be one of {SUP_COS_HOPS}, got {hop!r}")
+    embeddings = sup_cos_space(space, features, adj)
+    if int(hop) == 1:
+        return SupCosCandidates(hop, space, embeddings, neighbor_lookup)
+    top2, size = hop2_top2_table(embeddings, edge_index, num_nodes)
+    return SupCosCandidates(hop, space, embeddings, neighbor_lookup, top2=top2, hop2_size=size)
+
+
+@torch.no_grad()
+def select_neighbors_sup_cos(candidates, support_ids, query_ids, selection_out=None):
+    """pick "sup_cos". Returns (selected [Q, S], has_neighbor [Q, S], sizes list) like `select_neighbors`.
+
+    The query of the pair is never chosen; no usable candidate -> support itself (fallback).
+    hop 2: rank-1 of `top2` unless it is the query, then rank-2. valid_count = usable entries of top2.
+    """
+    if not isinstance(candidates, SupCosCandidates):
+        raise TypeError("pick 'sup_cos' needs a SupCosCandidates object in the neighbor_lookup slot")
+    e = candidates.embeddings
+    q = query_ids[:, None]
+    if candidates.hop == 1:
+        valid, (neighbor_ids, sizes) = _eligible(support_ids, query_ids, candidates.neighbor_lookup, 0)
+        to_support = torch.einsum("sd,skd->sk", e[support_ids], e[neighbor_ids])  # [S, K]
+        score = to_support.unsqueeze(0).expand(query_ids.numel(), -1, -1).masked_fill(~valid, -torch.inf)
+        positions = score.argmax(dim=-1)
+        selected = neighbor_ids.unsqueeze(0).expand(query_ids.numel(), -1, -1).gather(2, positions.unsqueeze(-1)).squeeze(-1)
+        has_neighbor = valid.any(dim=-1)
+        valid_count = valid.sum(dim=-1)
+    else:
+        t = candidates.top2[support_ids]  # [S, 2]
+        first, second = t[None, :, 0], t[None, :, 1]
+        use1 = (first >= 0) & (first != q)
+        use2 = (second >= 0) & (second != q)
+        selected = torch.where(use1, first, second).expand(query_ids.numel(), -1)
+        has_neighbor = use1 | use2
+        valid_count = use1.long() + use2.long()
+        sizes = candidates.hop2_size[support_ids].tolist()
+    selected = torch.where(has_neighbor, selected, support_ids[None, :].expand_as(selected))
+    if selection_out is not None:
+        selection_out.update(selected=selected, has_neighbor=has_neighbor, valid_count=valid_count)
+    return selected, has_neighbor, sizes

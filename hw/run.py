@@ -29,12 +29,15 @@ from hw.config import DEFAULT_CONFIG, build_args, load_config
 from hw.episodes import build_eval_pools, build_train_pool
 from hw.evaluate import evaluate
 from hw.losses import episode_loss
-from hw.neighbors import PICKS, build_neighbor_lookup, load_selection_embeddings
+from hw.neighbors import ALL_PICKS, SUP_COS, build_neighbor_lookup, build_sup_cos, load_selection_embeddings, sup_cos_space
 from hw.weights import DIAG_KEYS
 
 RESULTS_ROOT = Path(os.environ.get("HW_RESULTS_ROOT", "results/hw"))
 FIRST_EPISODES_LOGGED = 5
-NBR_DIAG_KEYS = ("nbr_eq_support", "nbr_eq_query", "query_eq_support", "pos_nbr_cos_raw", "fallback_frac", "multi_nbr_frac")
+NBR_DIAG_KEYS = (
+    "nbr_eq_support", "nbr_eq_query", "query_eq_support", "pos_nbr_cos_raw", "fallback_frac", "multi_nbr_frac",
+    "nbr_in_own_queries", "nbr_in_any_queries", "nbr_is_query", "pos_nbr_cos_a2x",  # HW04a
+)
 RANDOM_PICK_SEED_OFFSET = 7919
 
 
@@ -66,7 +69,7 @@ def _mean_or_none(values):
 
 
 @torch.no_grad()
-def neighbor_diagnostics(labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out):
+def neighbor_diagnostics(labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out, a2x_normalized=None):
     """HW03a purity / hardness of the positive (own pseudo-class) selections of one episode.
 
     measurement-only label use: GT labels are read here only; the values go to metrics.json
@@ -90,6 +93,13 @@ def neighbor_diagnostics(labels, raw_normalized, id_spt, y_spt, id_query, y_quer
         out["pos_nbr_cos_raw"] = float((raw_normalized[query_ids[qi]] * raw_normalized[chosen]).sum(-1).mean().item())
         out["fallback_frac"] = float((~selection_out["has_neighbor"][qi, si]).float().mean().item())
         out["multi_nbr_frac"] = float((selection_out["valid_count"][qi, si] >= 2).float().mean().item())
+        # HW04a (no labels): overlap of the chosen positive with this episode's pseudo-queries
+        own = (chosen[:, None] == query_ids[None, :]) & (query_pseudo[None, :] == support_pseudo[si][:, None])
+        out["nbr_in_own_queries"] = float(own.any(dim=1).float().mean().item())
+        out["nbr_in_any_queries"] = float((chosen[:, None] == query_ids[None, :]).any(dim=1).float().mean().item())
+        out["nbr_is_query"] = float((chosen == query_ids[qi]).float().mean().item())
+        if a2x_normalized is not None:
+            out["pos_nbr_cos_a2x"] = float((a2x_normalized[query_ids[qi]] * a2x_normalized[chosen]).sum(-1).mean().item())
     return out
 
 
@@ -122,8 +132,12 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     selector = cfg.get("selector")
     hsan = cfg.get("hsan")
     pick = cfg.get("pick", "max")
-    if pick not in PICKS:
-        raise ValueError(f"pick must be one of {PICKS}")
+    if pick not in ALL_PICKS:
+        raise ValueError(f"pick must be one of {ALL_PICKS}")
+    pick_hop = cfg.get("pick_hop") if pick == SUP_COS else None
+    pick_space = cfg.get("pick_space") if pick == SUP_COS else None
+    if pick == SUP_COS and max_neighbors != 0:
+        raise ValueError("pick sup_cos requires max_neighbors == 0")
     hsan_diag_keys = [f"{term}_{key}" for term in ("orig", "nbr") for key in DIAG_KEYS]
 
     out_dir = RESULTS_ROOT / arm / dataset / f"seed{seed}"
@@ -149,7 +163,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         "seed": seed,
         "device": str(device),
         "settings": vars(args),
-        "neighbor_contrastive": {"temperature": temperature, "lambda_neighbor": lambda_neighbor, "max_neighbors": max_neighbors, "selector": selector, "pick": pick},
+        "neighbor_contrastive": {"temperature": temperature, "lambda_neighbor": lambda_neighbor, "max_neighbors": max_neighbors, "selector": selector, "pick": pick, "pick_hop": pick_hop, "pick_space": pick_space},
         "hsan": hsan,
         "protocol": {
             "sampling": "original NaQ-Feat top-10 raw-feature pseudo-queries",
@@ -184,12 +198,29 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         if pick == "random":  # dedicated generator: the global RNG stream is not consumed
             generator = torch.Generator(device=device)
             generator.manual_seed(seed + RANDOM_PICK_SEED_OFFSET)
+        sup_cos = None
+        if pick == SUP_COS:  # selection table (HW04a): deterministic, no RNG
+            table_started = time.time()
+            sup_cos = build_sup_cos(pick_hop, pick_space, features, data.adj, data.edge_index, num_nodes, neighbor_lookup=None)
+            result["sup_cos_table"] = {"hop": int(pick_hop), "space": pick_space, "seconds": round(time.time() - table_started, 2)}
+            if sup_cos.top2 is not None:
+                result["sup_cos_table"].update(
+                    nodes_with_hop2=float((sup_cos.hop2_size > 0).float().mean().item()),
+                    nodes_with_two_hop2=float((sup_cos.top2[:, 1] >= 0).float().mean().item()),
+                    hop2_size_median=float(sup_cos.hop2_size.float().median().item()),
+                )
+        a2x_normalized = None
+        if loss_kind != "original":  # diagnostics only (pos_nbr_cos_a2x); no RNG
+            a2x_normalized = sup_cos.embeddings if (sup_cos is not None and pick_space == "a2x") else sup_cos_space("a2x", features, data.adj)
         space_features = None
         if hsan is not None and hsan.get("space") == "raw":
             space_features = F.normalize(features.detach(), p=2, dim=1)  # no RNG
         config = [("GCN", (d, 2 * args.latent), True), ("GCN", (2 * args.latent, args.latent), True), ("linear", (args.latent, args.n_way), True)]
         model = ProtoNet(args, config, data).to(device)
         neighbor_lookup = build_neighbor_lookup(data.edge_index, num_nodes) if loss_kind != "original" else None
+        if sup_cos is not None:  # sup_cos candidates travel in the neighbor_lookup slot
+            sup_cos.neighbor_lookup = neighbor_lookup
+            neighbor_lookup = sup_cos
         train_pool = build_train_pool(args, data)
         valid_pool, test_pool = build_eval_pools(args, data)
         print(f"[hw.run:{arm}] {dataset} seed={seed} train={len(train_pool)} valid={len(valid_pool)} test={len(test_pool)}", flush=True)
@@ -222,7 +253,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 generator=generator,
                 selection_out=selection_out,
             )
-            for key, value in neighbor_diagnostics(data.labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out).items():
+            for key, value in neighbor_diagnostics(data.labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out, a2x_normalized).items():
                 nbr_buffers[key].append(value)
             loss_value = float(loss.detach().item())
             if not math.isfinite(loss_value):  # G4: stop this run, record status "nan"

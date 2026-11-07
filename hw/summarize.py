@@ -20,7 +20,7 @@ import numpy as np
 RESULTS_ROOT = Path(os.environ.get("HW_RESULTS_ROOT", "results/hw"))
 FIELDS = [
     "arm", "ds", "seed", "best_epoch", "val", "test", "ci95", "elapsed", "orig_pos_weight_mean", "nbr_pos_weight_mean",
-    "collapsed", "nbr_eq_support", "nbr_eq_query", "pos_nbr_cos_raw",
+    "collapsed", "nbr_eq_support", "nbr_eq_query", "pos_nbr_cos_raw", "nbr_in_own_queries", "nbr_in_any_queries",
 ]
 COLLAPSE_VAL_MAX = 25.0  # best-epoch validation accuracy (%) <= this -> collapsed=1 (CLAUDE.md §4.3)
 SKIP_DIRS = {"repro", "_regress"}
@@ -128,6 +128,8 @@ def collect():
                 "nbr_eq_support": _final_nbr_diag(result, "nbr_eq_support"),
                 "nbr_eq_query": _final_nbr_diag(result, "nbr_eq_query"),
                 "pos_nbr_cos_raw": _final_nbr_diag(result, "pos_nbr_cos_raw"),
+                "nbr_in_own_queries": _final_nbr_diag(result, "nbr_in_own_queries"),
+                "nbr_in_any_queries": _final_nbr_diag(result, "nbr_in_any_queries"),
             }
         )
     return rows, incomplete
