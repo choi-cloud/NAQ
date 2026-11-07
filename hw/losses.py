@@ -4,13 +4,15 @@ Transcribed from choi_exps/zip_20261107/exp015.py `episode_contrastive_loss`.
 loss == "original": the neighbor term and neighbor selection are not computed.
 hsan is None: the code path below `episode_loss` is the HW01 path, unchanged.
 hsan given: `episode_loss_hsan` (HW02) — HSAN weights on the orig / both terms (hw/weights.py).
+pick (HW03a): neighbor choice, hw.neighbors.select_neighbors_pick; "max" = HW01 selection.
+selection_out: optional dict filled with the selected neighbor ids (diagnostics only).
 """
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from hw.neighbors import select_neighbors
+from hw.neighbors import select_neighbors_pick
 from hw.weights import apply_weights, hsan_weights
 
 
@@ -33,10 +35,14 @@ def episode_loss(
     max_neighbors=0,
     hsan=None,
     space_features=None,
+    pick="max",
+    generator=None,
+    selection_out=None,
 ):
     if hsan is not None:
         return episode_loss_hsan(
-            embeddings, id_spt, y_spt, id_query, y_query, temperature, selection_embeddings_normalized, neighbor_lookup, lambda_neighbor, max_neighbors, hsan, space_features
+            embeddings, id_spt, y_spt, id_query, y_query, temperature, selection_embeddings_normalized, neighbor_lookup, lambda_neighbor, max_neighbors, hsan, space_features,
+            pick=pick, generator=generator, selection_out=selection_out,
         )
     device = embeddings.device
     support_ids = torch.as_tensor(id_spt, dtype=torch.long, device=device).flatten()
@@ -65,7 +71,7 @@ def episode_loss(
         diagnostics.update(neighbor_loss=None, mean_support_neighbors_considered=None, fraction_valid_neighbor_selections=None)
     elif loss_kind == "original+neighbor":
         # (2) Per-query, per-support neighbor selected by frozen selection embeddings.
-        selected_neighbor_ids, has_neighbor, sizes = select_neighbors(selection_embeddings_normalized, support_ids, query_ids, neighbor_lookup, max_neighbors)
+        selected_neighbor_ids, has_neighbor, sizes = select_neighbors_pick(selection_embeddings_normalized, support_ids, query_ids, neighbor_lookup, max_neighbors, pick, generator, selection_out)
         neighbor_vectors = embeddings[selected_neighbor_ids]  # [Q, S, D]
         neighbor_dists = (queries[:, None, :] - neighbor_vectors).square().sum(-1)
         neighbor_logits = -neighbor_dists / temperature
@@ -108,6 +114,9 @@ def episode_loss_hsan(
     max_neighbors,
     hsan,
     space_features=None,
+    pick="max",
+    generator=None,
+    selection_out=None,
 ):
     """L_original + lambda * L_neighbor with HSAN weights M on the selected terms.
 
@@ -150,7 +159,7 @@ def episode_loss_hsan(
     original_loss = _info_nce(direct_logits, positive_mask)
 
     # (2) nbr term: query vs per-(query, class) selected neighbor.
-    selected_neighbor_ids, has_neighbor, sizes = select_neighbors(selection_embeddings_normalized, support_ids, query_ids, neighbor_lookup, max_neighbors)
+    selected_neighbor_ids, has_neighbor, sizes = select_neighbors_pick(selection_embeddings_normalized, support_ids, query_ids, neighbor_lookup, max_neighbors, pick, generator, selection_out)
     neighbor_vectors = embeddings[selected_neighbor_ids]  # [Q, S, D]
     if logit_kind == "cos_hsan":
         neighbor_logits = _cos_logits(queries, neighbor_vectors, tau_cos)

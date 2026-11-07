@@ -18,7 +18,21 @@ from pathlib import Path
 import numpy as np
 
 RESULTS_ROOT = Path(os.environ.get("HW_RESULTS_ROOT", "results/hw"))
-FIELDS = ["arm", "ds", "seed", "best_epoch", "val", "test", "ci95", "elapsed", "orig_pos_weight_mean", "nbr_pos_weight_mean"]
+FIELDS = [
+    "arm", "ds", "seed", "best_epoch", "val", "test", "ci95", "elapsed", "orig_pos_weight_mean", "nbr_pos_weight_mean",
+    "collapsed", "nbr_eq_support", "nbr_eq_query", "pos_nbr_cos_raw",
+]
+COLLAPSE_VAL_MAX = 25.0  # best-epoch validation accuracy (%) <= this -> collapsed=1 (CLAUDE.md §4.3)
+SKIP_DIRS = {"repro", "_regress"}
+
+
+def _final_nbr_diag(result, key):
+    """HW03a neighbor diagnostic of the last eval interval (None if not recorded)."""
+    epochs = result.get("epochs") or []
+    if not epochs or not epochs[-1].get("nbr_diag"):
+        return None
+    value = epochs[-1]["nbr_diag"].get(key)
+    return None if value is None else round(value, 4)
 
 
 def _final_diag(result, key):
@@ -90,7 +104,7 @@ def _all_seeds(rows):
 def collect():
     rows, incomplete = [], []
     for path in sorted(RESULTS_ROOT.glob("*/*/seed*/metrics.json")):
-        if path.parts[len(RESULTS_ROOT.parts)] == "repro":
+        if path.parts[len(RESULTS_ROOT.parts)] in SKIP_DIRS:
             continue
         with open(path, "r", encoding="utf-8") as file:
             result = json.load(file)
@@ -110,6 +124,10 @@ def collect():
                 "elapsed": result["elapsed_seconds"],
                 "orig_pos_weight_mean": _final_diag(result, "orig_pos_weight_mean"),
                 "nbr_pos_weight_mean": _final_diag(result, "nbr_pos_weight_mean"),
+                "collapsed": int(100 * best["validation"]["accuracy_mean"] <= COLLAPSE_VAL_MAX),
+                "nbr_eq_support": _final_nbr_diag(result, "nbr_eq_support"),
+                "nbr_eq_query": _final_nbr_diag(result, "nbr_eq_query"),
+                "pos_nbr_cos_raw": _final_nbr_diag(result, "pos_nbr_cos_raw"),
             }
         )
     return rows, incomplete
@@ -134,6 +152,7 @@ def main():
         "# HW summary",
         "",
         "test accuracy (%), seed mean ± std (ddof=0); n = number of seeds. 5-way 5-shot, 500 test tasks.",
+        f"[c=k]: k runs collapsed (best-epoch validation ≤ {COLLAPSE_VAL_MAX:.0f}%), included in the mean.",
         "",
         "| arm | " + " | ".join(datasets) + " |",
         "|---|" + "---|" * len(datasets),
@@ -146,11 +165,13 @@ def main():
                 cells.append("—")
                 continue
             tests = np.array([row["test"] for row in group])
-            cells.append(f"{tests.mean():.2f} ± {tests.std(ddof=0):.2f} (n={len(group)})")
+            collapsed = sum(row["collapsed"] for row in group)
+            mark = f" [c={collapsed}]" if collapsed else ""
+            cells.append(f"{tests.mean():.2f} ± {tests.std(ddof=0):.2f} (n={len(group)}){mark}")
         lines.append(f"| {arm} | " + " | ".join(cells) + " |")
-    lines += ["", "## runs", "", "| arm | ds | seed | best_epoch | val | test | ci95 | elapsed (s) |", "|---|---|---|---|---|---|---|---|"]
+    lines += ["", "## runs", "", "| arm | ds | seed | best_epoch | val | test | ci95 | elapsed (s) | collapsed |", "|---|---|---|---|---|---|---|---|---|"]
     for row in rows:
-        lines.append(f"| {row['arm']} | {row['ds']} | {row['seed']} | {row['best_epoch']} | {row['val']:.2f} | {row['test']:.2f} | {row['ci95']:.2f} | {row['elapsed']:.0f} |")
+        lines.append(f"| {row['arm']} | {row['ds']} | {row['seed']} | {row['best_epoch']} | {row['val']:.2f} | {row['test']:.2f} | {row['ci95']:.2f} | {row['elapsed']:.0f} | {row['collapsed']} |")
     if incomplete:
         lines += ["", "## not completed", ""]
         lines += [f"- `{path}`: {status} {error or ''}" for path, status, error in incomplete]

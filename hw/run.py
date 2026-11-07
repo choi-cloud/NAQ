@@ -29,11 +29,13 @@ from hw.config import DEFAULT_CONFIG, build_args, load_config
 from hw.episodes import build_eval_pools, build_train_pool
 from hw.evaluate import evaluate
 from hw.losses import episode_loss
-from hw.neighbors import build_neighbor_lookup, load_selection_embeddings
+from hw.neighbors import PICKS, build_neighbor_lookup, load_selection_embeddings
 from hw.weights import DIAG_KEYS
 
 RESULTS_ROOT = Path(os.environ.get("HW_RESULTS_ROOT", "results/hw"))
 FIRST_EPISODES_LOGGED = 5
+NBR_DIAG_KEYS = ("nbr_eq_support", "nbr_eq_query", "query_eq_support", "pos_nbr_cos_raw", "fallback_frac", "multi_nbr_frac")
+RANDOM_PICK_SEED_OFFSET = 7919
 
 
 def save_json(path, value):
@@ -61,6 +63,34 @@ class _Tee:
 def _mean_or_none(values):
     values = [v for v in values if v is not None]
     return float(np.mean(values)) if values else None
+
+
+@torch.no_grad()
+def neighbor_diagnostics(labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out):
+    """HW03a purity / hardness of the positive (own pseudo-class) selections of one episode.
+
+    measurement-only label use: GT labels are read here only; the values go to metrics.json
+    (epochs[].nbr_diag) and never into the loss, the neighbor selection or checkpoint selection.
+    selection_out None (loss "original"): only query_eq_support.
+    """
+    device = labels.device
+    support_ids = torch.as_tensor(id_spt, dtype=torch.long, device=device).flatten()
+    query_ids = torch.as_tensor(id_query, dtype=torch.long, device=device).flatten()
+    support_pseudo = torch.as_tensor(y_spt, dtype=torch.long, device=device).flatten()
+    query_pseudo = torch.as_tensor(y_query, dtype=torch.long, device=device).flatten()
+    qi, si = (query_pseudo[:, None] == support_pseudo[None, :]).nonzero(as_tuple=True)
+    gt_query = labels[query_ids[qi]]  # measurement-only label use
+    gt_support = labels[support_ids[si]]  # measurement-only label use
+    out = {"query_eq_support": float((gt_query == gt_support).float().mean().item())}
+    if selection_out:
+        chosen = selection_out["selected"][qi, si]
+        gt_chosen = labels[chosen]  # measurement-only label use
+        out["nbr_eq_support"] = float((gt_chosen == gt_support).float().mean().item())
+        out["nbr_eq_query"] = float((gt_chosen == gt_query).float().mean().item())
+        out["pos_nbr_cos_raw"] = float((raw_normalized[query_ids[qi]] * raw_normalized[chosen]).sum(-1).mean().item())
+        out["fallback_frac"] = float((~selection_out["has_neighbor"][qi, si]).float().mean().item())
+        out["multi_nbr_frac"] = float((selection_out["valid_count"][qi, si] >= 2).float().mean().item())
+    return out
 
 
 def parse_cli():
@@ -91,6 +121,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     max_neighbors = int(cfg.get("max_neighbors", 0))
     selector = cfg.get("selector")
     hsan = cfg.get("hsan")
+    pick = cfg.get("pick", "max")
+    if pick not in PICKS:
+        raise ValueError(f"pick must be one of {PICKS}")
     hsan_diag_keys = [f"{term}_{key}" for term in ("orig", "nbr") for key in DIAG_KEYS]
 
     out_dir = RESULTS_ROOT / arm / dataset / f"seed{seed}"
@@ -116,7 +149,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         "seed": seed,
         "device": str(device),
         "settings": vars(args),
-        "neighbor_contrastive": {"temperature": temperature, "lambda_neighbor": lambda_neighbor, "max_neighbors": max_neighbors, "selector": selector},
+        "neighbor_contrastive": {"temperature": temperature, "lambda_neighbor": lambda_neighbor, "max_neighbors": max_neighbors, "selector": selector, "pick": pick},
         "hsan": hsan,
         "protocol": {
             "sampling": "original NaQ-Feat top-10 raw-feature pseudo-queries",
@@ -146,6 +179,11 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             selection, selection_path = load_selection_embeddings(selector, features, dataset, num_nodes, device, cfg.get("bgrl_dir"))
             if selection_path is not None:
                 result["selection_embedding_path"] = selection_path
+        raw_normalized = F.normalize(features.detach(), p=2, dim=1)  # diagnostics only; no RNG
+        generator = None
+        if pick == "random":  # dedicated generator: the global RNG stream is not consumed
+            generator = torch.Generator(device=device)
+            generator.manual_seed(seed + RANDOM_PICK_SEED_OFFSET)
         space_features = None
         if hsan is not None and hsan.get("space") == "raw":
             space_features = F.normalize(features.detach(), p=2, dim=1)  # no RNG
@@ -160,10 +198,12 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         best_state = None
         losses, accuracies, original_losses, neighbor_losses, neighbor_counts, valid_fractions = [], [], [], [], [], []
         hsan_buffers = {key: [] for key in hsan_diag_keys}
+        nbr_buffers = {key: [] for key in NBR_DIAG_KEYS}
         recent_diagnostics = deque(maxlen=5)
         for epoch, (id_spt, y_spt, id_query, y_query) in tqdm(enumerate(train_pool, 1), total=len(train_pool), desc=dataset, file=sys.__stderr__):
             model.train()
             embeddings = model.network(features, adj=data.adj)
+            selection_out = {} if loss_kind != "original" else None
             loss, accuracy, diagnostics = episode_loss(
                 embeddings,
                 id_spt,
@@ -178,7 +218,12 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 max_neighbors=max_neighbors,
                 hsan=hsan,
                 space_features=space_features,
+                pick=pick,
+                generator=generator,
+                selection_out=selection_out,
             )
+            for key, value in neighbor_diagnostics(data.labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out).items():
+                nbr_buffers[key].append(value)
             loss_value = float(loss.detach().item())
             if not math.isfinite(loss_value):  # G4: stop this run, record status "nan"
                 result["status"] = "nan"
@@ -228,6 +273,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 record["hsan_diag"] = {key: (float(np.mean(values)) if values else None) for key, values in hsan_buffers.items()}
                 for values in hsan_buffers.values():
                     values.clear()
+            record["nbr_diag"] = {key: (float(np.mean(values)) if values else None) for key, values in nbr_buffers.items()}
+            for values in nbr_buffers.values():
+                values.clear()
             result["epochs"].append(record)
             print(
                 f"[Epoch {epoch:5d}] loss={record['train_loss_mean']:.4f} "

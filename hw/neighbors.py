@@ -77,3 +77,68 @@ def select_neighbors(selection_embeddings_normalized, support_ids, query_ids, ne
         # If support has no eligible 1-hop neighbor, use its original ID.
         selected_neighbor_ids = torch.where(has_neighbor, selected_neighbor_ids, support_ids[None, :].expand_as(selected_neighbor_ids))
     return selected_neighbor_ids, has_neighbor, sizes
+
+
+PICKS = ("max", "contrast", "random")
+
+
+def select_neighbors_pick(selection_embeddings_normalized, support_ids, query_ids, neighbor_lookup, max_neighbors, pick="max", generator=None, selection_out=None):
+    """Neighbor selection with `pick` (HW03a).
+
+    pick "max": calls `select_neighbors` unchanged (argmax cos(neighbor, query)).
+    pick "contrast": argmax [cos(e_n, e_support) - cos(e_n, e_query)] in the selection space.
+    pick "random": uniform over eligible neighbors, drawn from `generator` only (no global RNG).
+    Eligible neighbors and the fallback (support itself) are the same as in `select_neighbors`.
+    selection_out (dict or None): receives `selected` [Q, S], `has_neighbor` [Q, S] and
+    `valid_count` [Q, S] (eligible neighbors per pair) for diagnostics; no effect on selection.
+    """
+    if pick not in PICKS:
+        raise ValueError(f"pick must be one of {PICKS}, got {pick!r}")
+    if pick == "max" and selection_out is None:
+        return select_neighbors(selection_embeddings_normalized, support_ids, query_ids, neighbor_lookup, max_neighbors)
+    if pick == "max":
+        selected, has_neighbor, sizes = select_neighbors(selection_embeddings_normalized, support_ids, query_ids, neighbor_lookup, max_neighbors)
+        valid, _ = _eligible(support_ids, query_ids, neighbor_lookup, max_neighbors)
+        selection_out.update(selected=selected, has_neighbor=has_neighbor, valid_count=valid.sum(dim=-1))
+        return selected, has_neighbor, sizes
+    if max_neighbors > 0:
+        raise ValueError("pick contrast/random is implemented for max_neighbors == 0 only")
+    with torch.no_grad():
+        valid, (neighbor_ids, sizes) = _eligible(support_ids, query_ids, neighbor_lookup, max_neighbors)
+        if pick == "contrast":
+            e = selection_embeddings_normalized
+            to_support = torch.einsum("sd,skd->sk", e[support_ids], e[neighbor_ids])  # [S, K]
+            to_query = torch.einsum("qd,skd->qsk", e[query_ids], e[neighbor_ids])  # [Q, S, K]
+            score = to_support.unsqueeze(0) - to_query
+        else:
+            if generator is None:
+                raise ValueError("pick 'random' needs a dedicated torch.Generator")
+            score = torch.rand(valid.shape, generator=generator, device=valid.device)
+        score = score.masked_fill(~valid, -torch.inf)
+        positions = score.argmax(dim=-1)  # [Q, S]
+        selected = neighbor_ids.unsqueeze(0).expand(query_ids.numel(), -1, -1).gather(2, positions.unsqueeze(-1)).squeeze(-1)
+        has_neighbor = valid.any(dim=-1)
+        selected = torch.where(has_neighbor, selected, support_ids[None, :].expand_as(selected))
+    if selection_out is not None:
+        selection_out.update(selected=selected, has_neighbor=has_neighbor, valid_count=valid.sum(dim=-1))
+    return selected, has_neighbor, sizes
+
+
+def _eligible(support_ids, query_ids, neighbor_lookup, max_neighbors):
+    """Eligibility mask [Q, S, K] as in `select_neighbors` (1-hop neighbors of each support, query
+    itself excluded). For max_neighbors > 0 the subsample in `select_neighbors` draws global RNG, so
+    this helper (diagnostics / contrast / random) supports max_neighbors == 0 only."""
+    if max_neighbors > 0:
+        raise ValueError("neighbor diagnostics are implemented for max_neighbors == 0 only")
+    device = support_ids.device
+    neighbor_lists = [neighbor_lookup[sid] for sid in support_ids.detach().cpu().tolist()]
+    sizes = [len(nodes) for nodes in neighbor_lists]
+    largest = max(1, max(sizes))
+    neighbor_ids = torch.zeros((len(sizes), largest), dtype=torch.long, device=device)
+    neighbor_valid = torch.zeros((len(sizes), largest), dtype=torch.bool, device=device)
+    for i, nodes in enumerate(neighbor_lists):
+        if nodes:
+            neighbor_ids[i, : len(nodes)] = torch.as_tensor(nodes, device=device)
+            neighbor_valid[i, : len(nodes)] = True
+    valid = neighbor_valid[None, :, :] & (neighbor_ids[None, :, :] != query_ids[:, None, None])
+    return valid, (neighbor_ids, sizes)
