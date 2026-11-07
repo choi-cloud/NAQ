@@ -1,33 +1,285 @@
 # HW summary
 
 test accuracy (%), seed mean ± std (ddof=0); n = number of seeds. 5-way 5-shot, 500 test tasks.
+[c=k]: k runs collapsed (best-epoch validation ≤ 25%), included in the mean.
 
 | arm | Amazon_clothing | Cora_full |
 |---|---|---|
-| naq_base | 90.77 ± 0.18 (n=5) | 77.68 ± 0.43 (n=5) |
-| nbr_raw | 90.98 ± 0.22 (n=5) | 78.08 ± 0.41 (n=5) |
+| cos_t005_none | 81.18 ± 0.46 (n=10) | 72.18 ± 0.59 (n=10) |
+| cos_t005_p | 71.09 ± 1.33 (n=10) | 62.26 ± 1.52 (n=10) |
+| cos_t005_pn | 76.90 ± 0.53 (n=10) | 69.57 ± 0.61 (n=10) |
+| cos_t010_none | 84.52 ± 0.34 (n=10) | 74.14 ± 0.62 (n=10) |
+| cos_t010_p | 75.01 ± 0.76 (n=10) | 66.29 ± 0.75 (n=10) |
+| cos_t010_pn | 82.38 ± 0.73 (n=10) | 74.14 ± 0.58 (n=10) |
+| cos_t020_none | 86.11 ± 0.38 (n=10) | 75.09 ± 0.51 (n=10) |
+| cos_t020_p | 78.26 ± 1.40 (n=10) | 69.51 ± 0.76 (n=10) |
+| cos_t020_pn | 84.86 ± 0.49 (n=10) | 75.16 ± 0.40 (n=10) |
+| naq_base | 90.74 ± 0.21 (n=10) | 77.85 ± 0.47 (n=10) |
+| nbr_raw | 91.07 ± 0.23 (n=10) | 78.12 ± 0.35 (n=10) |
+| nbr_raw_contrast | 91.09 ± 0.19 (n=10) | 78.17 ± 0.48 (n=10) |
+| nbr_raw_random | 91.14 ± 0.23 (n=10) | 78.25 ± 0.50 (n=10) |
 
 ## runs
 
-| arm | ds | seed | best_epoch | val | test | ci95 | elapsed (s) |
-|---|---|---|---|---|---|---|---|
-| naq_base | Amazon_clothing | 1212 | 1600 | 87.75 | 90.60 | 0.70 | 66 |
-| naq_base | Amazon_clothing | 1213 | 2000 | 87.55 | 90.80 | 0.68 | 66 |
-| naq_base | Amazon_clothing | 1214 | 2000 | 88.10 | 91.11 | 0.70 | 68 |
-| naq_base | Amazon_clothing | 1215 | 1920 | 87.90 | 90.66 | 0.69 | 67 |
-| naq_base | Amazon_clothing | 1216 | 1600 | 87.45 | 90.67 | 0.70 | 67 |
-| naq_base | Cora_full | 1212 | 1760 | 86.60 | 77.95 | 0.82 | 52 |
-| naq_base | Cora_full | 1213 | 1920 | 86.30 | 77.11 | 0.85 | 52 |
-| naq_base | Cora_full | 1214 | 1600 | 86.15 | 77.23 | 0.83 | 52 |
-| naq_base | Cora_full | 1215 | 2000 | 86.25 | 77.90 | 0.82 | 53 |
-| naq_base | Cora_full | 1216 | 2000 | 86.15 | 78.21 | 0.83 | 51 |
-| nbr_raw | Amazon_clothing | 1212 | 1280 | 88.60 | 90.89 | 0.68 | 72 |
-| nbr_raw | Amazon_clothing | 1213 | 1760 | 87.70 | 91.15 | 0.72 | 72 |
-| nbr_raw | Amazon_clothing | 1214 | 2000 | 88.45 | 91.26 | 0.70 | 72 |
-| nbr_raw | Amazon_clothing | 1215 | 2000 | 88.05 | 90.94 | 0.69 | 72 |
-| nbr_raw | Amazon_clothing | 1216 | 960 | 87.75 | 90.64 | 0.71 | 73 |
-| nbr_raw | Cora_full | 1212 | 2000 | 86.70 | 78.14 | 0.83 | 59 |
-| nbr_raw | Cora_full | 1213 | 1920 | 86.55 | 77.68 | 0.84 | 57 |
-| nbr_raw | Cora_full | 1214 | 1440 | 86.00 | 77.56 | 0.83 | 57 |
-| nbr_raw | Cora_full | 1215 | 1920 | 87.20 | 78.67 | 0.82 | 58 |
-| nbr_raw | Cora_full | 1216 | 2000 | 86.30 | 78.36 | 0.81 | 57 |
+| arm | ds | seed | best_epoch | val | test | ci95 | elapsed (s) | collapsed |
+|---|---|---|---|---|---|---|---|---|
+| cos_t005_none | Amazon_clothing | 1212 | 1760 | 77.95 | 81.48 | 0.86 | 77 | 0 |
+| cos_t005_none | Amazon_clothing | 1213 | 1120 | 77.45 | 80.32 | 0.89 | 75 | 0 |
+| cos_t005_none | Amazon_clothing | 1214 | 1760 | 77.70 | 81.54 | 0.87 | 77 | 0 |
+| cos_t005_none | Amazon_clothing | 1215 | 1280 | 78.40 | 81.21 | 0.84 | 76 | 0 |
+| cos_t005_none | Amazon_clothing | 1216 | 1440 | 78.30 | 81.55 | 0.89 | 78 | 0 |
+| cos_t005_none | Amazon_clothing | 1217 | 960 | 77.80 | 80.66 | 0.89 | 73 | 0 |
+| cos_t005_none | Amazon_clothing | 1218 | 1600 | 77.95 | 81.42 | 0.88 | 77 | 0 |
+| cos_t005_none | Amazon_clothing | 1219 | 1760 | 77.40 | 81.15 | 0.84 | 77 | 0 |
+| cos_t005_none | Amazon_clothing | 1220 | 1440 | 78.15 | 80.64 | 0.87 | 78 | 0 |
+| cos_t005_none | Amazon_clothing | 1221 | 1760 | 78.85 | 81.80 | 0.86 | 77 | 0 |
+| cos_t005_none | Cora_full | 1212 | 1120 | 80.50 | 72.58 | 0.91 | 63 | 0 |
+| cos_t005_none | Cora_full | 1213 | 1600 | 79.95 | 71.51 | 0.90 | 64 | 0 |
+| cos_t005_none | Cora_full | 1214 | 1760 | 80.75 | 72.39 | 0.89 | 62 | 0 |
+| cos_t005_none | Cora_full | 1215 | 1600 | 79.90 | 72.78 | 0.88 | 63 | 0 |
+| cos_t005_none | Cora_full | 1216 | 960 | 80.15 | 71.42 | 0.88 | 62 | 0 |
+| cos_t005_none | Cora_full | 1217 | 960 | 80.75 | 72.67 | 0.88 | 62 | 0 |
+| cos_t005_none | Cora_full | 1218 | 1600 | 80.85 | 73.20 | 0.90 | 62 | 0 |
+| cos_t005_none | Cora_full | 1219 | 1280 | 79.75 | 71.77 | 0.87 | 63 | 0 |
+| cos_t005_none | Cora_full | 1220 | 1280 | 79.70 | 71.55 | 0.91 | 64 | 0 |
+| cos_t005_none | Cora_full | 1221 | 2000 | 79.95 | 71.98 | 0.90 | 62 | 0 |
+| cos_t005_p | Amazon_clothing | 1212 | 1280 | 66.10 | 69.48 | 0.93 | 78 | 0 |
+| cos_t005_p | Amazon_clothing | 1213 | 1120 | 69.05 | 70.21 | 0.98 | 74 | 0 |
+| cos_t005_p | Amazon_clothing | 1214 | 1120 | 67.10 | 71.66 | 0.97 | 81 | 0 |
+| cos_t005_p | Amazon_clothing | 1215 | 800 | 68.95 | 73.27 | 0.91 | 79 | 0 |
+| cos_t005_p | Amazon_clothing | 1216 | 1760 | 68.25 | 69.75 | 0.96 | 79 | 0 |
+| cos_t005_p | Amazon_clothing | 1217 | 1440 | 68.85 | 70.26 | 0.95 | 80 | 0 |
+| cos_t005_p | Amazon_clothing | 1218 | 960 | 69.65 | 73.36 | 0.95 | 78 | 0 |
+| cos_t005_p | Amazon_clothing | 1219 | 1440 | 68.40 | 69.94 | 0.94 | 78 | 0 |
+| cos_t005_p | Amazon_clothing | 1220 | 480 | 70.35 | 71.58 | 1.00 | 77 | 0 |
+| cos_t005_p | Amazon_clothing | 1221 | 960 | 69.50 | 71.34 | 0.91 | 79 | 0 |
+| cos_t005_p | Cora_full | 1212 | 1600 | 71.45 | 61.38 | 0.97 | 65 | 0 |
+| cos_t005_p | Cora_full | 1213 | 800 | 70.65 | 59.28 | 1.03 | 63 | 0 |
+| cos_t005_p | Cora_full | 1214 | 1120 | 71.25 | 63.73 | 0.97 | 64 | 0 |
+| cos_t005_p | Cora_full | 1215 | 1440 | 72.20 | 62.20 | 0.97 | 64 | 0 |
+| cos_t005_p | Cora_full | 1216 | 960 | 72.70 | 60.81 | 0.94 | 63 | 0 |
+| cos_t005_p | Cora_full | 1217 | 1920 | 73.40 | 63.80 | 0.98 | 65 | 0 |
+| cos_t005_p | Cora_full | 1218 | 1280 | 72.40 | 63.94 | 0.95 | 64 | 0 |
+| cos_t005_p | Cora_full | 1219 | 1600 | 73.15 | 64.04 | 0.96 | 64 | 0 |
+| cos_t005_p | Cora_full | 1220 | 640 | 72.50 | 61.45 | 0.97 | 64 | 0 |
+| cos_t005_p | Cora_full | 1221 | 1920 | 72.50 | 62.01 | 0.95 | 65 | 0 |
+| cos_t005_pn | Amazon_clothing | 1212 | 2000 | 73.75 | 76.56 | 0.94 | 77 | 0 |
+| cos_t005_pn | Amazon_clothing | 1213 | 1120 | 74.60 | 76.44 | 0.93 | 79 | 0 |
+| cos_t005_pn | Amazon_clothing | 1214 | 2000 | 75.50 | 77.73 | 0.88 | 78 | 0 |
+| cos_t005_pn | Amazon_clothing | 1215 | 1120 | 74.20 | 76.77 | 0.90 | 78 | 0 |
+| cos_t005_pn | Amazon_clothing | 1216 | 1280 | 75.50 | 76.86 | 0.90 | 78 | 0 |
+| cos_t005_pn | Amazon_clothing | 1217 | 1760 | 74.95 | 77.14 | 0.92 | 78 | 0 |
+| cos_t005_pn | Amazon_clothing | 1218 | 1280 | 73.90 | 77.52 | 0.92 | 78 | 0 |
+| cos_t005_pn | Amazon_clothing | 1219 | 1440 | 73.75 | 76.43 | 0.92 | 77 | 0 |
+| cos_t005_pn | Amazon_clothing | 1220 | 2000 | 74.00 | 76.00 | 0.93 | 80 | 0 |
+| cos_t005_pn | Amazon_clothing | 1221 | 800 | 74.20 | 77.49 | 0.94 | 78 | 0 |
+| cos_t005_pn | Cora_full | 1212 | 1920 | 78.70 | 69.08 | 0.94 | 63 | 0 |
+| cos_t005_pn | Cora_full | 1213 | 1760 | 77.60 | 70.17 | 0.95 | 64 | 0 |
+| cos_t005_pn | Cora_full | 1214 | 800 | 77.80 | 69.00 | 0.95 | 62 | 0 |
+| cos_t005_pn | Cora_full | 1215 | 1120 | 79.65 | 69.67 | 0.94 | 62 | 0 |
+| cos_t005_pn | Cora_full | 1216 | 960 | 78.35 | 68.41 | 0.93 | 64 | 0 |
+| cos_t005_pn | Cora_full | 1217 | 960 | 79.05 | 69.60 | 0.97 | 65 | 0 |
+| cos_t005_pn | Cora_full | 1218 | 1760 | 78.70 | 69.99 | 1.00 | 64 | 0 |
+| cos_t005_pn | Cora_full | 1219 | 1760 | 78.65 | 70.66 | 0.93 | 64 | 0 |
+| cos_t005_pn | Cora_full | 1220 | 1440 | 78.75 | 69.42 | 0.94 | 64 | 0 |
+| cos_t005_pn | Cora_full | 1221 | 1920 | 79.15 | 69.69 | 0.87 | 64 | 0 |
+| cos_t010_none | Amazon_clothing | 1212 | 2000 | 82.35 | 84.03 | 0.82 | 76 | 0 |
+| cos_t010_none | Amazon_clothing | 1213 | 1280 | 81.50 | 84.58 | 0.81 | 76 | 0 |
+| cos_t010_none | Amazon_clothing | 1214 | 1120 | 81.65 | 85.20 | 0.83 | 75 | 0 |
+| cos_t010_none | Amazon_clothing | 1215 | 1760 | 83.20 | 84.92 | 0.80 | 76 | 0 |
+| cos_t010_none | Amazon_clothing | 1216 | 1600 | 82.60 | 84.67 | 0.82 | 77 | 0 |
+| cos_t010_none | Amazon_clothing | 1217 | 1120 | 82.05 | 84.55 | 0.83 | 76 | 0 |
+| cos_t010_none | Amazon_clothing | 1218 | 1280 | 81.55 | 84.26 | 0.83 | 76 | 0 |
+| cos_t010_none | Amazon_clothing | 1219 | 1280 | 81.25 | 84.19 | 0.83 | 77 | 0 |
+| cos_t010_none | Amazon_clothing | 1220 | 1600 | 81.35 | 84.20 | 0.83 | 77 | 0 |
+| cos_t010_none | Amazon_clothing | 1221 | 1280 | 82.10 | 84.55 | 0.83 | 77 | 0 |
+| cos_t010_none | Cora_full | 1212 | 1600 | 82.60 | 75.06 | 0.84 | 63 | 0 |
+| cos_t010_none | Cora_full | 1213 | 1600 | 83.70 | 73.36 | 0.89 | 62 | 0 |
+| cos_t010_none | Cora_full | 1214 | 1440 | 83.85 | 73.79 | 0.88 | 62 | 0 |
+| cos_t010_none | Cora_full | 1215 | 1120 | 83.15 | 74.02 | 0.88 | 63 | 0 |
+| cos_t010_none | Cora_full | 1216 | 1920 | 83.10 | 74.17 | 0.86 | 63 | 0 |
+| cos_t010_none | Cora_full | 1217 | 1920 | 83.80 | 73.65 | 0.88 | 63 | 0 |
+| cos_t010_none | Cora_full | 1218 | 2000 | 83.85 | 75.33 | 0.87 | 63 | 0 |
+| cos_t010_none | Cora_full | 1219 | 960 | 82.25 | 74.51 | 0.84 | 63 | 0 |
+| cos_t010_none | Cora_full | 1220 | 1440 | 82.15 | 74.02 | 0.87 | 62 | 0 |
+| cos_t010_none | Cora_full | 1221 | 1920 | 82.70 | 73.49 | 0.88 | 64 | 0 |
+| cos_t010_p | Amazon_clothing | 1212 | 960 | 72.35 | 75.11 | 0.93 | 78 | 0 |
+| cos_t010_p | Amazon_clothing | 1213 | 1120 | 74.55 | 75.74 | 0.92 | 77 | 0 |
+| cos_t010_p | Amazon_clothing | 1214 | 1120 | 71.50 | 74.91 | 0.91 | 80 | 0 |
+| cos_t010_p | Amazon_clothing | 1215 | 1280 | 73.55 | 73.81 | 0.91 | 81 | 0 |
+| cos_t010_p | Amazon_clothing | 1216 | 1600 | 72.25 | 74.16 | 0.94 | 78 | 0 |
+| cos_t010_p | Amazon_clothing | 1217 | 320 | 72.75 | 75.00 | 0.94 | 77 | 0 |
+| cos_t010_p | Amazon_clothing | 1218 | 1280 | 73.70 | 76.69 | 0.90 | 77 | 0 |
+| cos_t010_p | Amazon_clothing | 1219 | 1280 | 73.55 | 74.97 | 0.91 | 78 | 0 |
+| cos_t010_p | Amazon_clothing | 1220 | 1760 | 72.95 | 74.65 | 0.94 | 80 | 0 |
+| cos_t010_p | Amazon_clothing | 1221 | 1600 | 73.45 | 75.11 | 0.94 | 77 | 0 |
+| cos_t010_p | Cora_full | 1212 | 1920 | 76.75 | 66.41 | 0.99 | 65 | 0 |
+| cos_t010_p | Cora_full | 1213 | 2000 | 75.05 | 66.46 | 0.97 | 64 | 0 |
+| cos_t010_p | Cora_full | 1214 | 2000 | 75.00 | 66.14 | 0.99 | 65 | 0 |
+| cos_t010_p | Cora_full | 1215 | 1920 | 76.95 | 65.56 | 0.96 | 65 | 0 |
+| cos_t010_p | Cora_full | 1216 | 1280 | 77.45 | 66.39 | 0.98 | 65 | 0 |
+| cos_t010_p | Cora_full | 1217 | 1760 | 76.00 | 66.55 | 1.01 | 64 | 0 |
+| cos_t010_p | Cora_full | 1218 | 2000 | 76.35 | 68.27 | 0.94 | 64 | 0 |
+| cos_t010_p | Cora_full | 1219 | 1760 | 76.15 | 65.58 | 0.96 | 65 | 0 |
+| cos_t010_p | Cora_full | 1220 | 1280 | 74.50 | 65.96 | 0.97 | 64 | 0 |
+| cos_t010_p | Cora_full | 1221 | 1600 | 74.90 | 65.58 | 0.97 | 65 | 0 |
+| cos_t010_pn | Amazon_clothing | 1212 | 2000 | 79.00 | 82.87 | 0.85 | 77 | 0 |
+| cos_t010_pn | Amazon_clothing | 1213 | 1120 | 80.60 | 83.02 | 0.88 | 79 | 0 |
+| cos_t010_pn | Amazon_clothing | 1214 | 2000 | 82.15 | 82.83 | 0.83 | 77 | 0 |
+| cos_t010_pn | Amazon_clothing | 1215 | 800 | 80.90 | 83.05 | 0.82 | 79 | 0 |
+| cos_t010_pn | Amazon_clothing | 1216 | 1600 | 81.35 | 82.08 | 0.84 | 78 | 0 |
+| cos_t010_pn | Amazon_clothing | 1217 | 800 | 80.45 | 81.14 | 0.89 | 78 | 0 |
+| cos_t010_pn | Amazon_clothing | 1218 | 1280 | 80.65 | 82.97 | 0.87 | 78 | 0 |
+| cos_t010_pn | Amazon_clothing | 1219 | 640 | 79.25 | 81.41 | 0.84 | 81 | 0 |
+| cos_t010_pn | Amazon_clothing | 1220 | 1920 | 80.15 | 82.98 | 0.86 | 78 | 0 |
+| cos_t010_pn | Amazon_clothing | 1221 | 1760 | 79.90 | 81.48 | 0.85 | 79 | 0 |
+| cos_t010_pn | Cora_full | 1212 | 960 | 82.70 | 73.96 | 0.88 | 65 | 0 |
+| cos_t010_pn | Cora_full | 1213 | 2000 | 83.50 | 74.11 | 0.92 | 64 | 0 |
+| cos_t010_pn | Cora_full | 1214 | 1440 | 83.30 | 72.68 | 0.89 | 64 | 0 |
+| cos_t010_pn | Cora_full | 1215 | 2000 | 83.95 | 74.42 | 0.86 | 64 | 0 |
+| cos_t010_pn | Cora_full | 1216 | 1280 | 82.85 | 74.20 | 0.86 | 66 | 0 |
+| cos_t010_pn | Cora_full | 1217 | 960 | 83.10 | 74.37 | 0.92 | 65 | 0 |
+| cos_t010_pn | Cora_full | 1218 | 1280 | 83.75 | 74.89 | 0.87 | 63 | 0 |
+| cos_t010_pn | Cora_full | 1219 | 1920 | 83.05 | 74.75 | 0.87 | 64 | 0 |
+| cos_t010_pn | Cora_full | 1220 | 1280 | 81.60 | 73.83 | 0.87 | 63 | 0 |
+| cos_t010_pn | Cora_full | 1221 | 1920 | 82.90 | 74.14 | 0.86 | 65 | 0 |
+| cos_t020_none | Amazon_clothing | 1212 | 1280 | 83.20 | 86.32 | 0.80 | 78 | 0 |
+| cos_t020_none | Amazon_clothing | 1213 | 2000 | 84.25 | 86.20 | 0.76 | 78 | 0 |
+| cos_t020_none | Amazon_clothing | 1214 | 2000 | 84.10 | 86.17 | 0.78 | 76 | 0 |
+| cos_t020_none | Amazon_clothing | 1215 | 1600 | 83.95 | 86.22 | 0.78 | 76 | 0 |
+| cos_t020_none | Amazon_clothing | 1216 | 1760 | 84.10 | 86.33 | 0.79 | 78 | 0 |
+| cos_t020_none | Amazon_clothing | 1217 | 1120 | 85.65 | 85.40 | 0.82 | 77 | 0 |
+| cos_t020_none | Amazon_clothing | 1218 | 1600 | 84.10 | 86.55 | 0.80 | 78 | 0 |
+| cos_t020_none | Amazon_clothing | 1219 | 1280 | 83.25 | 85.66 | 0.80 | 76 | 0 |
+| cos_t020_none | Amazon_clothing | 1220 | 1920 | 83.55 | 85.65 | 0.82 | 77 | 0 |
+| cos_t020_none | Amazon_clothing | 1221 | 1600 | 83.65 | 86.56 | 0.79 | 77 | 0 |
+| cos_t020_none | Cora_full | 1212 | 1920 | 84.15 | 75.80 | 0.84 | 63 | 0 |
+| cos_t020_none | Cora_full | 1213 | 1760 | 84.55 | 74.89 | 0.91 | 62 | 0 |
+| cos_t020_none | Cora_full | 1214 | 1760 | 83.95 | 74.36 | 0.89 | 62 | 0 |
+| cos_t020_none | Cora_full | 1215 | 960 | 83.65 | 74.63 | 0.88 | 63 | 0 |
+| cos_t020_none | Cora_full | 1216 | 1920 | 83.60 | 75.36 | 0.86 | 63 | 0 |
+| cos_t020_none | Cora_full | 1217 | 960 | 84.45 | 74.98 | 0.86 | 65 | 0 |
+| cos_t020_none | Cora_full | 1218 | 2000 | 84.25 | 75.94 | 0.85 | 64 | 0 |
+| cos_t020_none | Cora_full | 1219 | 640 | 84.30 | 74.61 | 0.86 | 62 | 0 |
+| cos_t020_none | Cora_full | 1220 | 1280 | 83.00 | 74.78 | 0.90 | 63 | 0 |
+| cos_t020_none | Cora_full | 1221 | 1760 | 83.25 | 75.56 | 0.88 | 63 | 0 |
+| cos_t020_p | Amazon_clothing | 1212 | 2000 | 75.65 | 78.06 | 0.93 | 78 | 0 |
+| cos_t020_p | Amazon_clothing | 1213 | 1120 | 76.00 | 78.27 | 0.96 | 78 | 0 |
+| cos_t020_p | Amazon_clothing | 1214 | 1120 | 76.20 | 79.25 | 0.86 | 74 | 0 |
+| cos_t020_p | Amazon_clothing | 1215 | 1280 | 77.95 | 79.83 | 0.86 | 77 | 0 |
+| cos_t020_p | Amazon_clothing | 1216 | 1760 | 77.65 | 78.53 | 0.92 | 76 | 0 |
+| cos_t020_p | Amazon_clothing | 1217 | 800 | 77.25 | 74.84 | 0.94 | 77 | 0 |
+| cos_t020_p | Amazon_clothing | 1218 | 1280 | 76.05 | 80.06 | 0.87 | 78 | 0 |
+| cos_t020_p | Amazon_clothing | 1219 | 1280 | 77.25 | 77.25 | 0.90 | 79 | 0 |
+| cos_t020_p | Amazon_clothing | 1220 | 1920 | 76.95 | 78.53 | 0.90 | 77 | 0 |
+| cos_t020_p | Amazon_clothing | 1221 | 800 | 76.45 | 78.00 | 0.91 | 79 | 0 |
+| cos_t020_p | Cora_full | 1212 | 1600 | 79.65 | 70.42 | 0.91 | 64 | 0 |
+| cos_t020_p | Cora_full | 1213 | 1760 | 79.65 | 69.14 | 0.95 | 66 | 0 |
+| cos_t020_p | Cora_full | 1214 | 1760 | 77.90 | 69.48 | 0.94 | 65 | 0 |
+| cos_t020_p | Cora_full | 1215 | 2000 | 79.10 | 69.29 | 0.96 | 64 | 0 |
+| cos_t020_p | Cora_full | 1216 | 960 | 79.40 | 68.82 | 0.92 | 64 | 0 |
+| cos_t020_p | Cora_full | 1217 | 2000 | 78.60 | 69.33 | 0.95 | 63 | 0 |
+| cos_t020_p | Cora_full | 1218 | 1920 | 79.20 | 69.38 | 0.95 | 64 | 0 |
+| cos_t020_p | Cora_full | 1219 | 2000 | 79.05 | 71.35 | 0.95 | 64 | 0 |
+| cos_t020_p | Cora_full | 1220 | 1600 | 78.95 | 69.25 | 0.99 | 65 | 0 |
+| cos_t020_p | Cora_full | 1221 | 1920 | 78.95 | 68.67 | 0.94 | 62 | 0 |
+| cos_t020_pn | Amazon_clothing | 1212 | 2000 | 82.05 | 84.33 | 0.83 | 79 | 0 |
+| cos_t020_pn | Amazon_clothing | 1213 | 1120 | 82.30 | 85.66 | 0.83 | 77 | 0 |
+| cos_t020_pn | Amazon_clothing | 1214 | 2000 | 83.70 | 85.17 | 0.80 | 78 | 0 |
+| cos_t020_pn | Amazon_clothing | 1215 | 1280 | 83.30 | 85.08 | 0.80 | 80 | 0 |
+| cos_t020_pn | Amazon_clothing | 1216 | 1600 | 84.05 | 84.92 | 0.81 | 79 | 0 |
+| cos_t020_pn | Amazon_clothing | 1217 | 1120 | 83.60 | 84.47 | 0.85 | 80 | 0 |
+| cos_t020_pn | Amazon_clothing | 1218 | 1280 | 82.85 | 85.06 | 0.83 | 76 | 0 |
+| cos_t020_pn | Amazon_clothing | 1219 | 1280 | 81.95 | 83.84 | 0.83 | 78 | 0 |
+| cos_t020_pn | Amazon_clothing | 1220 | 1920 | 83.25 | 85.17 | 0.83 | 77 | 0 |
+| cos_t020_pn | Amazon_clothing | 1221 | 1600 | 82.70 | 84.90 | 0.81 | 79 | 0 |
+| cos_t020_pn | Cora_full | 1212 | 1280 | 84.05 | 75.17 | 0.85 | 63 | 0 |
+| cos_t020_pn | Cora_full | 1213 | 1600 | 84.75 | 74.48 | 0.91 | 61 | 0 |
+| cos_t020_pn | Cora_full | 1214 | 1760 | 84.15 | 74.74 | 0.89 | 64 | 0 |
+| cos_t020_pn | Cora_full | 1215 | 2000 | 84.20 | 75.35 | 0.86 | 64 | 0 |
+| cos_t020_pn | Cora_full | 1216 | 1280 | 84.10 | 75.16 | 0.86 | 64 | 0 |
+| cos_t020_pn | Cora_full | 1217 | 960 | 84.60 | 75.49 | 0.88 | 65 | 0 |
+| cos_t020_pn | Cora_full | 1218 | 1760 | 84.80 | 75.59 | 0.89 | 64 | 0 |
+| cos_t020_pn | Cora_full | 1219 | 1760 | 83.40 | 75.83 | 0.85 | 64 | 0 |
+| cos_t020_pn | Cora_full | 1220 | 1280 | 83.15 | 74.94 | 0.86 | 65 | 0 |
+| cos_t020_pn | Cora_full | 1221 | 1920 | 83.80 | 74.81 | 0.85 | 62 | 0 |
+| naq_base | Amazon_clothing | 1212 | 1600 | 87.75 | 90.60 | 0.70 | 66 | 0 |
+| naq_base | Amazon_clothing | 1213 | 2000 | 87.55 | 90.80 | 0.68 | 66 | 0 |
+| naq_base | Amazon_clothing | 1214 | 2000 | 88.10 | 91.11 | 0.70 | 68 | 0 |
+| naq_base | Amazon_clothing | 1215 | 1920 | 87.90 | 90.66 | 0.69 | 67 | 0 |
+| naq_base | Amazon_clothing | 1216 | 1600 | 87.45 | 90.67 | 0.70 | 67 | 0 |
+| naq_base | Amazon_clothing | 1217 | 1440 | 89.05 | 90.45 | 0.72 | 68 | 0 |
+| naq_base | Amazon_clothing | 1218 | 1920 | 87.70 | 91.14 | 0.71 | 68 | 0 |
+| naq_base | Amazon_clothing | 1219 | 1760 | 87.60 | 90.64 | 0.70 | 65 | 0 |
+| naq_base | Amazon_clothing | 1220 | 2000 | 88.25 | 90.59 | 0.70 | 68 | 0 |
+| naq_base | Amazon_clothing | 1221 | 1920 | 87.85 | 90.73 | 0.70 | 68 | 0 |
+| naq_base | Cora_full | 1212 | 1760 | 86.60 | 77.95 | 0.82 | 52 | 0 |
+| naq_base | Cora_full | 1213 | 1920 | 86.30 | 77.11 | 0.85 | 52 | 0 |
+| naq_base | Cora_full | 1214 | 1600 | 86.15 | 77.23 | 0.83 | 52 | 0 |
+| naq_base | Cora_full | 1215 | 2000 | 86.25 | 77.90 | 0.82 | 53 | 0 |
+| naq_base | Cora_full | 1216 | 2000 | 86.15 | 78.21 | 0.83 | 51 | 0 |
+| naq_base | Cora_full | 1217 | 2000 | 87.05 | 77.56 | 0.83 | 54 | 0 |
+| naq_base | Cora_full | 1218 | 2000 | 86.20 | 78.65 | 0.83 | 53 | 0 |
+| naq_base | Cora_full | 1219 | 2000 | 86.60 | 78.33 | 0.82 | 52 | 0 |
+| naq_base | Cora_full | 1220 | 1760 | 86.30 | 78.01 | 0.83 | 52 | 0 |
+| naq_base | Cora_full | 1221 | 1920 | 86.85 | 77.51 | 0.83 | 53 | 0 |
+| nbr_raw | Amazon_clothing | 1212 | 1280 | 88.60 | 90.89 | 0.68 | 72 | 0 |
+| nbr_raw | Amazon_clothing | 1213 | 1760 | 87.70 | 91.15 | 0.72 | 72 | 0 |
+| nbr_raw | Amazon_clothing | 1214 | 2000 | 88.45 | 91.26 | 0.70 | 72 | 0 |
+| nbr_raw | Amazon_clothing | 1215 | 2000 | 88.05 | 90.94 | 0.69 | 72 | 0 |
+| nbr_raw | Amazon_clothing | 1216 | 960 | 87.75 | 90.64 | 0.71 | 73 | 0 |
+| nbr_raw | Amazon_clothing | 1217 | 2000 | 89.20 | 91.26 | 0.68 | 73 | 0 |
+| nbr_raw | Amazon_clothing | 1218 | 1920 | 88.10 | 91.37 | 0.71 | 73 | 0 |
+| nbr_raw | Amazon_clothing | 1219 | 1600 | 87.75 | 91.25 | 0.67 | 74 | 0 |
+| nbr_raw | Amazon_clothing | 1220 | 1920 | 88.70 | 90.78 | 0.69 | 74 | 0 |
+| nbr_raw | Amazon_clothing | 1221 | 1920 | 88.75 | 91.12 | 0.69 | 74 | 0 |
+| nbr_raw | Cora_full | 1212 | 2000 | 86.70 | 78.14 | 0.83 | 59 | 0 |
+| nbr_raw | Cora_full | 1213 | 1920 | 86.55 | 77.68 | 0.84 | 57 | 0 |
+| nbr_raw | Cora_full | 1214 | 1440 | 86.00 | 77.56 | 0.83 | 57 | 0 |
+| nbr_raw | Cora_full | 1215 | 1920 | 87.20 | 78.67 | 0.82 | 58 | 0 |
+| nbr_raw | Cora_full | 1216 | 2000 | 86.30 | 78.36 | 0.81 | 57 | 0 |
+| nbr_raw | Cora_full | 1217 | 2000 | 86.25 | 78.05 | 0.82 | 60 | 0 |
+| nbr_raw | Cora_full | 1218 | 1600 | 86.00 | 78.09 | 0.83 | 60 | 0 |
+| nbr_raw | Cora_full | 1219 | 1920 | 86.15 | 78.55 | 0.81 | 59 | 0 |
+| nbr_raw | Cora_full | 1220 | 2000 | 86.55 | 78.35 | 0.81 | 61 | 0 |
+| nbr_raw | Cora_full | 1221 | 1920 | 86.70 | 77.77 | 0.82 | 59 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1212 | 1280 | 88.70 | 90.98 | 0.67 | 73 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1213 | 1760 | 87.65 | 91.36 | 0.69 | 73 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1214 | 2000 | 88.30 | 91.35 | 0.70 | 73 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1215 | 1920 | 87.95 | 90.97 | 0.69 | 73 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1216 | 1600 | 87.80 | 90.96 | 0.68 | 72 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1217 | 1920 | 89.05 | 91.11 | 0.69 | 74 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1218 | 960 | 88.10 | 90.84 | 0.70 | 73 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1219 | 1600 | 87.85 | 91.30 | 0.67 | 73 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1220 | 2000 | 88.80 | 90.86 | 0.70 | 73 | 0 |
+| nbr_raw_contrast | Amazon_clothing | 1221 | 1920 | 88.60 | 91.12 | 0.69 | 74 | 0 |
+| nbr_raw_contrast | Cora_full | 1212 | 2000 | 86.75 | 78.34 | 0.82 | 59 | 0 |
+| nbr_raw_contrast | Cora_full | 1213 | 1920 | 86.50 | 77.48 | 0.84 | 58 | 0 |
+| nbr_raw_contrast | Cora_full | 1214 | 1440 | 86.10 | 77.38 | 0.82 | 59 | 0 |
+| nbr_raw_contrast | Cora_full | 1215 | 2000 | 87.00 | 78.61 | 0.80 | 58 | 0 |
+| nbr_raw_contrast | Cora_full | 1216 | 960 | 86.05 | 77.99 | 0.83 | 59 | 0 |
+| nbr_raw_contrast | Cora_full | 1217 | 2000 | 86.05 | 78.09 | 0.82 | 58 | 0 |
+| nbr_raw_contrast | Cora_full | 1218 | 2000 | 86.00 | 79.00 | 0.80 | 58 | 0 |
+| nbr_raw_contrast | Cora_full | 1219 | 2000 | 86.45 | 78.64 | 0.80 | 59 | 0 |
+| nbr_raw_contrast | Cora_full | 1220 | 2000 | 86.45 | 78.22 | 0.80 | 59 | 0 |
+| nbr_raw_contrast | Cora_full | 1221 | 1920 | 86.85 | 77.94 | 0.82 | 59 | 0 |
+| nbr_raw_random | Amazon_clothing | 1212 | 1440 | 88.70 | 90.78 | 0.68 | 72 | 0 |
+| nbr_raw_random | Amazon_clothing | 1213 | 1760 | 87.75 | 91.33 | 0.69 | 73 | 0 |
+| nbr_raw_random | Amazon_clothing | 1214 | 2000 | 88.40 | 91.41 | 0.70 | 72 | 0 |
+| nbr_raw_random | Amazon_clothing | 1215 | 1920 | 88.00 | 91.01 | 0.69 | 73 | 0 |
+| nbr_raw_random | Amazon_clothing | 1216 | 1440 | 88.00 | 90.91 | 0.67 | 73 | 0 |
+| nbr_raw_random | Amazon_clothing | 1217 | 1440 | 88.85 | 90.98 | 0.70 | 71 | 0 |
+| nbr_raw_random | Amazon_clothing | 1218 | 1920 | 88.15 | 91.30 | 0.72 | 72 | 0 |
+| nbr_raw_random | Amazon_clothing | 1219 | 2000 | 88.20 | 91.47 | 0.67 | 72 | 0 |
+| nbr_raw_random | Amazon_clothing | 1220 | 2000 | 88.90 | 90.91 | 0.69 | 71 | 0 |
+| nbr_raw_random | Amazon_clothing | 1221 | 1920 | 88.55 | 91.30 | 0.69 | 72 | 0 |
+| nbr_raw_random | Cora_full | 1212 | 2000 | 86.75 | 78.13 | 0.82 | 59 | 0 |
+| nbr_raw_random | Cora_full | 1213 | 1600 | 86.35 | 77.70 | 0.84 | 60 | 0 |
+| nbr_raw_random | Cora_full | 1214 | 1440 | 86.30 | 77.47 | 0.82 | 57 | 0 |
+| nbr_raw_random | Cora_full | 1215 | 1920 | 87.35 | 78.79 | 0.81 | 55 | 0 |
+| nbr_raw_random | Cora_full | 1216 | 2000 | 86.35 | 78.23 | 0.82 | 58 | 0 |
+| nbr_raw_random | Cora_full | 1217 | 2000 | 86.50 | 78.22 | 0.81 | 57 | 0 |
+| nbr_raw_random | Cora_full | 1218 | 2000 | 85.80 | 79.23 | 0.81 | 59 | 0 |
+| nbr_raw_random | Cora_full | 1219 | 1920 | 86.40 | 78.54 | 0.81 | 59 | 0 |
+| nbr_raw_random | Cora_full | 1220 | 1920 | 86.65 | 78.44 | 0.81 | 58 | 0 |
+| nbr_raw_random | Cora_full | 1221 | 1920 | 86.80 | 77.75 | 0.82 | 57 | 0 |
