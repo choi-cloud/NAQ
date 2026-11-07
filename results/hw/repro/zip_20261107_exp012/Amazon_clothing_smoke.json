@@ -1,0 +1,93 @@
+{
+  "experiment": "exp012",
+  "dataset": "Amazon_clothing",
+  "status": "completed",
+  "seed": 1212,
+  "device": "cuda:0",
+  "settings": {
+    "device": 0,
+    "setting": "unsup",
+    "dataset": "Amazon_clothing",
+    "epoch": 2,
+    "n_way": 5,
+    "k_shot": 1,
+    "k_shot_test": 5,
+    "q_query": 10,
+    "q_query_test": 8,
+    "lr": 0.0001,
+    "num_downstream_tasks": 500,
+    "num_valid_tasks": 50,
+    "l2_penalty": 0.0001,
+    "latent": 256,
+    "query_generation": "NaQ",
+    "type": "feature",
+    "PPR_alpha": 0.1,
+    "exp_time": "20261107-0732"
+  },
+  "neighborhood_attention": {
+    "temperature": 0.5,
+    "attention_temperature": 1.0,
+    "max_neighbors": 10
+  },
+  "protocol": {
+    "sampling": "original NaQ-Feat top-10 raw-feature pseudo-queries",
+    "augmentation": "none; single original graph",
+    "encoder": "one randomly initialized 2-layer GCN",
+    "positives": [
+      "own support",
+      "query-conditioned own support neighborhood prototype"
+    ],
+    "negatives": "other pseudo-class supports and their query-conditioned neighborhood prototypes",
+    "neighbor_source": "original graph 1-hop neighbors, optional random cap; query node excluded",
+    "loss": "multi-positive logmeanexp, negative squared Euclidean logits",
+    "attention": "scaled query-neighbor dot product softmax over each support neighborhood",
+    "inference": "single clean original graph, original 5-way/5-shot mean ProtoNet",
+    "eval_every_epochs": 160,
+    "checkpoint_selection": "best validation of 50 tasks; test once on 500 tasks",
+    "pretrained_embeddings": "not used; trainable embeddings for attention",
+    "code_changes": "none to original NaQ modules"
+  },
+  "epochs": [
+    {
+      "epoch": 2,
+      "train_loss_mean": 2.0206061601638794,
+      "train_accuracy_support_euclidean_mean": 0.7199999690055847,
+      "mean_support_neighbors_sampled": 3.8,
+      "validation": {
+        "accuracy_mean": 0.6565000104904175,
+        "accuracy_std": 0.14359752727600492,
+        "accuracy_sem": 0.02030775705969666,
+        "accuracy_ci95_half_width": 0.039803203837005446,
+        "mean_true_class_distance_margin": 0.03146078776102513,
+        "num_tasks": 50,
+        "n_way": 5,
+        "k_shot": 5
+      },
+      "elapsed_seconds": 3.04
+    }
+  ],
+  "best": {
+    "epoch": 2,
+    "validation": {
+      "accuracy_mean": 0.6565000104904175,
+      "accuracy_std": 0.14359752727600492,
+      "accuracy_sem": 0.02030775705969666,
+      "accuracy_ci95_half_width": 0.039803203837005446,
+      "mean_true_class_distance_margin": 0.03146078776102513,
+      "num_tasks": 50,
+      "n_way": 5,
+      "k_shot": 5
+    },
+    "test": {
+      "accuracy_mean": 0.709750010728836,
+      "accuracy_std": 0.1093557832413947,
+      "accuracy_sem": 0.004890539301209816,
+      "accuracy_ci95_half_width": 0.00958545703037124,
+      "mean_true_class_distance_margin": 0.07327112631022464,
+      "num_tasks": 500,
+      "n_way": 5,
+      "k_shot": 5
+    }
+  },
+  "elapsed_seconds": 3.45
+}

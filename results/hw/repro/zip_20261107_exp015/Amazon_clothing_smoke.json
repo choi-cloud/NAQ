@@ -1,0 +1,95 @@
+{
+  "experiment": "exp015",
+  "dataset": "Amazon_clothing",
+  "status": "completed",
+  "seed": 1212,
+  "device": "cuda:0",
+  "settings": {
+    "device": 0,
+    "setting": "unsup",
+    "dataset": "Amazon_clothing",
+    "epoch": 2,
+    "n_way": 5,
+    "k_shot": 1,
+    "k_shot_test": 5,
+    "q_query": 10,
+    "q_query_test": 8,
+    "lr": 0.0001,
+    "num_downstream_tasks": 500,
+    "num_valid_tasks": 50,
+    "l2_penalty": 0.0001,
+    "latent": 256,
+    "query_generation": "NaQ",
+    "type": "feature",
+    "PPR_alpha": 0.1,
+    "exp_time": "20261107-0732"
+  },
+  "neighbor_contrastive": {
+    "temperature": 0.5,
+    "lambda_neighbor": 0.1,
+    "max_neighbors": 0
+  },
+  "protocol": {
+    "sampling": "original NaQ-Feat top-10 raw-feature pseudo-queries",
+    "augmentation": "none; single original graph",
+    "encoder": "one randomly initialized 2-layer GCN",
+    "loss": "original_support_InfoNCE + lambda_neighbor * feature_selected_neighbor_InfoNCE",
+    "original_candidates": "episode class support embeddings",
+    "neighbor_candidates": "one per class; query raw-feature cosine Top-1 within each support original 1-hop neighborhood",
+    "neighbor_query_identity": "excluded from neighbor selection",
+    "neighbor_without_candidates": "fallback to that class support embedding",
+    "selection_embedding": "original node features, frozen and cosine-normalized",
+    "loss_embedding": "trainable GNN embeddings; negative squared Euclidean logits",
+    "inference": "single clean original graph, original 5-way/5-shot mean ProtoNet",
+    "eval_every_epochs": 160,
+    "checkpoint_selection": "best validation of 50 tasks; test once on 500 tasks",
+    "pretrained_embeddings": "not used",
+    "code_changes": "none to original NaQ modules"
+  },
+  "epochs": [
+    {
+      "epoch": 2,
+      "train_loss_mean": 1.5368029475212097,
+      "train_accuracy_support_euclidean_mean": 0.7199999690055847,
+      "train_original_loss_mean": 1.3558276891708374,
+      "train_neighbor_loss_mean": 1.8097525835037231,
+      "mean_support_neighbors_considered": 8.1,
+      "fraction_valid_neighbor_selections": 0.9980000257492065,
+      "validation": {
+        "accuracy_mean": 0.6555000126361847,
+        "accuracy_std": 0.14733380410211314,
+        "accuracy_sem": 0.020836146395722913,
+        "accuracy_ci95_half_width": 0.04083884693561691,
+        "mean_true_class_distance_margin": 0.03088108687195927,
+        "num_tasks": 50,
+        "n_way": 5,
+        "k_shot": 5
+      },
+      "elapsed_seconds": 3.14
+    }
+  ],
+  "best": {
+    "epoch": 2,
+    "validation": {
+      "accuracy_mean": 0.6555000126361847,
+      "accuracy_std": 0.14733380410211314,
+      "accuracy_sem": 0.020836146395722913,
+      "accuracy_ci95_half_width": 0.04083884693561691,
+      "mean_true_class_distance_margin": 0.03088108687195927,
+      "num_tasks": 50,
+      "n_way": 5,
+      "k_shot": 5
+    },
+    "test": {
+      "accuracy_mean": 0.7109000109434128,
+      "accuracy_std": 0.10858724584094258,
+      "accuracy_sem": 0.004856169263796578,
+      "accuracy_ci95_half_width": 0.009518091757041292,
+      "mean_true_class_distance_margin": 0.07123594238188526,
+      "num_tasks": 500,
+      "n_way": 5,
+      "k_shot": 5
+    }
+  },
+  "elapsed_seconds": 3.55
+}
