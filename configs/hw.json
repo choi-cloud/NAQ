@@ -1,0 +1,16 @@
+{
+  "defaults": {
+    "n_way": 5, "k_shot": 1, "k_shot_test": 5,
+    "q_query": 10, "q_query_test": 8,
+    "query_generation": "NaQ", "type": "feature",
+    "lr": 1e-4, "epochs": 2000, "eval_every": 160,
+    "temperature": 0.5,
+    "valid_tasks": 50, "test_tasks": 500,
+    "seed": 1212, "device": 0
+  },
+  "arms": {
+    "naq_base": { "loss": "original", "note": "L_original만 (석휘 새 계열 exp001 대응 가정, 미확인)" },
+    "nbr_raw":  { "loss": "original+neighbor", "selector": "raw",  "lambda_neighbor": 0.1, "max_neighbors": 0, "note": "= zip exp015 (.sh 값)" },
+    "nbr_bgrl": { "loss": "original+neighbor", "selector": "bgrl", "lambda_neighbor": 1.0, "max_neighbors": 0, "bgrl_dir": "cache/bgrl", "note": "= zip exp016 (.sh 값)" }
+  }
+}
