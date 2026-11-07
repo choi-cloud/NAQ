@@ -5,6 +5,7 @@ Sorted by the mean of the per-dataset Δ means (ties: total positive seeds).
 
 | arm | Amazon_clothing | Cora_full | mean of ds means | positive total |
 |---|---|---|---|---|
+| nbr_bgrl | +0.11 ± 0.33 (3/5) | +0.97 ± 0.68 (5/5) | +0.54 | 8 |
 | nbr_raw | +0.20 ± 0.09 (5/5) | +0.35 ± 0.79 (4/5) | +0.28 | 9 |
 | hsan_p_orig_b1_raw | -1.28 ± 0.14 (0/5) | +0.05 ± 0.22 (3/5) | -0.62 | 3 |
 | hsan_p_orig_b1 | -5.14 ± 1.25 (0/5) | -0.61 ± 0.87 (1/5) | -2.87 | 1 |
@@ -22,6 +23,8 @@ Sorted by the mean of the per-dataset Δ means (ties: total positive seeds).
 
 | arm | ds | seed 1212 | seed 1213 | seed 1214 | seed 1215 | seed 1216 |
 |---|---|---|---|---|---|---|
+| nbr_bgrl | Amazon_clothing | +0.42 | +0.32 | -0.38 | +0.39 | -0.19 |
+| nbr_bgrl | Cora_full | +0.47 | +2.18 | +0.22 | +1.17 | +0.81 |
 | nbr_raw | Amazon_clothing | +0.09 | +0.27 | +0.12 | +0.21 | +0.33 |
 | nbr_raw | Cora_full | +0.32 | +1.48 | -0.96 | +0.71 | +0.21 |
 | hsan_p_orig_b1_raw | Amazon_clothing | -1.48 | -1.39 | -1.08 | -1.24 | -1.23 |

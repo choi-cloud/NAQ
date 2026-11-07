@@ -2,7 +2,7 @@
 
 2026-11-07 · 서버 seio (RTX 4080 SUPER × 1) · 브랜치 `hl/hsan-weighting` · 지시서 `instructions/HW03a_seio.md` · CLAUDE.md 개정 4(드롭 폴더 판본) · 태그 없음
 
-> 이 보고서는 단계마다 갱신한다. 현재: **s1 완료**, s2–s4 미실행.
+> 이 보고서는 단계마다 갱신한다. 현재: **s1·s2 완료**, s3–s4 미실행.
 
 ## 1. 결론
 
@@ -55,12 +55,41 @@ PYTHONPATH=hw/compat:. /home/h2tae/.conda/envs/taskns/bin/python -u choi_exps/zi
 - 학습 손실(epoch 1 → 400): Cora_full 1.9179 → 0.0035, Amazon_clothing 1.9072 → 0.0111.
 - epoch별 전체 값은 `results/hw/repro/zip_20261107_exp004/exp004_<ds>.json`에 있다.
 
+### 2.3 `nbr_bgrl` 5 seed (seio, `results/hw/summary.md`, `paired_nbr_raw.md`, `paired_naq_base.md`)
+
+| arm | Amazon_clothing | Cora_full |
+|---|---|---|
+| naq_base | 90.80 ± 0.20 | 77.59 ± 0.70 |
+| nbr_raw | 91.00 ± 0.20 | 77.94 ± 0.61 |
+| nbr_bgrl | 90.91 ± 0.27 | 78.56 ± 0.39 |
+| 표 1 exp016 (석휘 서버, seed 1212) | 91.21 | 79.52 |
+
+| 짝지은 Δ (seio, 5 seed) | Amazon_clothing | Cora_full |
+|---|---|---|
+| `nbr_bgrl − nbr_raw` | −0.09 ± 0.35 (양수 3/5) | +0.62 ± 0.34 (양수 5/5) |
+| `nbr_bgrl − naq_base` | +0.11 ± 0.33 (양수 3/5) | +0.97 ± 0.68 (양수 5/5) |
+
+seed별 결과(`nbr_bgrl`, test % / best_epoch / Δ vs `nbr_raw`):
+
+| seed | Amazon_clothing | Cora_full |
+|---|---|---|
+| 1212 | 91.02 / 1600 / +0.33 | 78.31 / 1920 / +0.15 |
+| 1213 | 91.24 / 1760 / +0.05 | 78.38 / 2000 / +0.70 |
+| 1214 | 90.75 / 1440 / −0.50 | 78.07 / 1920 / +1.18 |
+| 1215 | 91.06 / 2000 / +0.18 | 79.13 / 2000 / +0.45 |
+| 1216 | 90.48 / 960 / −0.52 | 78.90 / 1440 / +0.60 |
+
+- 10 run 모두 `status == "completed"`이고 붕괴(collapsed)는 0이다.
+- `selection_embedding_path`는 `cache/bgrl/<ds>.pt`다.
+- 마지막 구간의 `fraction_valid_neighbor_selections`는 Cora_full 0.9990–0.9994, Amazon_clothing 0.9985–0.9988이다.
+- `nbr_bgrl`(λ 1.0)과 `nbr_raw`(λ 0.1)는 λ_neighbor도 다르다(각각 exp016·exp015의 `.sh` 값).
+
 ## 3. 게이트·사전 등록 대조표
 
 | ID | 기준 | 측정값 | 통과 여부 |
 |---|---|---|---|
 | G-bgrl | (a)(b)(c), 두 ds | 모두 ✓ | 통과 |
-| HWP024 | `nbr_bgrl − nbr_raw` ≥ 0, 두 ds (seio 5 seed) | s2 미실행 | — |
+| HWP024 | `nbr_bgrl − nbr_raw` ≥ 0, 두 ds (seio 5 seed) | Amazon_clothing −0.09 (3/5), Cora_full +0.62 (5/5) | 기준 미충족 (Amazon_clothing) |
 | HWP025 | `nbr_eq_support`: max(bgrl) ≥ max(raw) > contrast > random | s3 미실행 | — |
 
 ## 4. 수행 내용
@@ -97,6 +126,11 @@ PYTHONPATH=hw/compat:. /home/h2tae/.conda/envs/taskns/bin/python -u choi_exps/zi
   - 참고: 두 데이터셋의 `edge_index`는 이미 대칭이고 중복과 self-loop이 없다(Cora_full E = 126,842, Amazon_clothing E = 183,360, 역방향 존재 비율 1.0). `data.adj`의 nnz는 E + N이다.
 - `hw/repro_choi.sh`는 `PYTHONPATH=.`를 고정한다. 그래서 `.sh`의 인자를 그대로 옮겨 직접 실행했다(§2.1 명령).
 - 복사: `out/exp004/exp004_<ds>_embeddings.pt` → `cache/bgrl/<ds>.pt`(md5 동일). `exp004_<ds>.{json,log}` → `results/hw/repro/zip_20261107_exp004/`.
+
+### HW03a-s2
+- run 목록 `results/hw/HW03a_s2.txt`: `nbr_bgrl` × 2 ds × seed 1212–1216. `GPUS=0 WORKERS=2 hw/run_queue.sh`로 12:20:17–12:27:11 UTC(6분 54초)에 돌렸다. run당 `elapsed_seconds`는 73.3–83.4 s다.
+- `python -m hw.summarize --ref nbr_raw --ref naq_base`를 실행했다. `paired_nbr_raw_cos.md`는 이번에 다시 만들지 않았다(HW02 판본 그대로).
+- 실행 전에 iislab4 커밋 `f8a6604`(HW03a-a: `pick`, 진단, collapse 표시)와 `0d9fbd7`을 pull했다. 비교 대상인 seio `naq_base`·`nbr_raw` 5 seed는 HW02(그 이전 코드)에서 돌린 run이다. 이 서버에서는 회귀 확인을 다시 하지 않았다(지시서에 해당 단계 없음).
 
 ## 5. 판단한 사항
 
