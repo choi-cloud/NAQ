@@ -2,17 +2,37 @@
 
 2026-11-07 · 서버 iislab4 · 브랜치 `hl/hsan-weighting` · 태그 `hw04m` (= `43e71a4`) · 사전 등록 HWP026–HWP032 · 학습 없음 · 결과 `results/measure/`
 
+> 개정 (HW04m-c2): 표마다 값의 종류(노드 macro 순도 / edge 비율 / 에피소드 쌍 비율)를 명시했다. 이전 판은 결론과 표 머리말에서 세 종류를 모두 "macro 순도"로 묶어 적었다. 수치는 바뀌지 않았다.
+
 ## 1. 결론
 
-1. macro 순도 hop1 / hop2 / hop3 = 0.5861 / 0.4224 / 0.2495 (Cora_full), 0.6211 / 0.5286 / 0.3740 (Amazon_clothing). `hop2_top1_a2x` 0.6149 / 0.7091로 두 ds에서 `hop1`보다 +2.89 / +8.79%p.
-2. PPR(α=0.15) 상위 1–5 순도 0.5686 / 0.5913, 6–10 0.5028 / 0.5541로 두 ds에서 `hop1`보다 낮다. `jl > 0` edge 순도 − `jl < 0` edge 순도 +18.36 / +8.17%p, `t ≥ 1` edge 안 `jl` Q5 − Q1 +22.75 / +11.52%p.
+1. **노드 macro 순도**(support 노드마다 "후보 중 같은 클래스 비율"의 노드 평균): hop1 / hop2 / hop3 = 0.5861 / 0.4224 / 0.2495 (Cora_full), 0.6211 / 0.5286 / 0.3740 (Amazon_clothing). hop2 안 Â²X cos 1위 1개(`hop2_top1_a2x`) 0.6149 / 0.7091, `hop1` 대비 +2.89 / +8.79%p. PPR(α=0.15) 순위 1–5 0.5686 / 0.5913, 6–10 0.5028 / 0.5541.
+2. **edge 비율**(무향 edge 중 양 끝 노드가 같은 클래스인 비율): `jl > 0` edge − `jl < 0` edge = +18.36 / +8.17%p; 삼각형 ≥ 1 edge 안 `jl` 최상위 분위 − 최하위 분위 = +22.75 / +11.52%p. **에피소드 쌍 비율**(seed 1212 학습 풀 10만 쌍 중 pseudo-query와 support가 같은 클래스인 비율): support 차수 Q1 0.2913 / 0.5540, Q5 0.4181 / 0.6807.
 3. G-toy 통과(32/32), G-consist 통과(|Δ| 0, 두 ds), purity.py 분리 재현 최대 |Δ| 6.0e-05. 사전 등록 충족 HWP027·031·032, 미충족 HWP026·028·029·030.
 
 ## 2. 핵심 표
 
-순도 셀 = **macro (micro)**. macro = support 노드마다 비율 → 집합이 비지 않은 노드 평균. micro = 모든 (support, 후보) 쌍을 모은 비율. coverage = 집합이 비지 않은 노드 비율(전체 노드 대비). 크기 중앙값 = 비지 않은 노드의 집합 크기 중앙값. support = 전체 노드.
+### 2.0 값의 정의 (모든 표 공통)
+
+- 값은 0–1 비율이다. `%p`로 적은 값만 두 비율의 차 × 100이다.
+- "같은 클래스" = 정답 레이블 `data.labels`(Cora_full 70 클래스, Amazon_clothing 77 클래스, 학습·검증·시험 클래스 구분 없이 전체 노드)가 같다. 레이블은 측정에만 썼다(`# measurement-only label use`).
+- 그래프 A = `data.edge_index`를 무향화하고 자기 루프·중복 edge를 뺀 이진 행렬. 차수 = A의 행 합.
+- chance = Σ_c p_c² (p_c = 클래스 c의 노드 비율) = 균일 무작위 두 노드가 같은 클래스일 확률.
+- 이 보고서의 값은 세 종류다.
+
+| 종류 | 단위 | 계산 | 쓰인 표 |
+|---|---|---|---|
+| **(N) 노드 macro 순도** — 셀 앞 숫자 | support 노드 s (전체 노드) | s마다 후보 집합 C(s)를 정하고 r(s) = \|{c ∈ C(s) : y_c = y_s}\| / \|C(s)\|; C(s)가 비지 않은 s에 대해 r(s)의 평균 | 2.2, 2.3, 2.4(위 표), 2.5(노드 중심 표) |
+| **(N′) 노드 micro 순도** — 셀 괄호 안 | (s, c) 쌍 | Σ_s \|{c ∈ C(s) : y_c = y_s}\| / Σ_s \|C(s)\| (모든 쌍을 모은 비율) | (N)과 같은 표 |
+| **(E) edge 비율** | 무향 edge (u, v), 각 1회 | 해당 bin의 edge 중 y_u = y_v인 비율 | 2.1의 edge 동질도, 2.5(위 두 표) |
+| **(P) 에피소드 쌍 비율** | 학습 에피소드의 자기 클래스 (pseudo-query q, support s) 쌍 | 해당 bin의 쌍 중 조건을 만족하는 비율 | 2.4(아래 표) |
+
+- (N) 표의 보조 열: **coverage** = C(s)가 비지 않은 s의 비율(그 행이 대상으로 하는 노드 수 대비). **크기 중앙값** = C(s)가 비지 않은 s들의 \|C(s)\| 중앙값.
+- top-m 행(`*_top1_*`, `*_top5_*`): 기본 후보 집합 안에서 cos(후보, s)가 큰 m개만 C(s)로 쓴다. 기본 집합이 m개보다 작으면 있는 만큼. cos 공간 `raw` = X를 L2 행 정규화, `a2x` = Â²X(Â = D^-1/2 (A+I) D^-1/2 = `data.adj`)를 L2 행 정규화. top1 행은 \|C(s)\| = 1이라 macro = micro이고, 값은 "고른 1개가 s와 같은 클래스인 노드의 비율"이다.
 
 ### 2.1 그래프 요약
+
+edge 동질도 = (E), 전체 무향 edge.
 
 | 항목 | Cora_full | Amazon_clothing |
 |---|---|---|
@@ -23,13 +43,15 @@
 | 고립 노드 | 0 | 0 |
 | 클래스 | 70 | 77 |
 | 차수 평균 / 중앙값 / 최대 | 6.41 / 4 / 297 | 7.36 / 3 / 251 |
-| edge 동질도 | 0.5670 | 0.6760 |
+| edge 동질도 (E) | 0.5670 | 0.6760 |
 | Â²X 확인: trainfree 식 / 독립 Â 구성 대비 max \|Δ\| | 0 / 0 | 0 / 0 |
 | 특징 차원 | 8,710 | 9,034 |
 
-### 2.2 M1 hop
+### 2.2 M1 hop — 값: (N) macro (괄호 (N′) micro)
 
-| 행 | Cora_full 순도 | cov | 크기 중앙값 | Amazon_clothing 순도 | cov | 크기 중앙값 |
+후보 집합 C(s): `hop1` = H1 = N(s); `hop2` = H2 = N²(s) \ (H1 ∪ {s}) (최단거리 정확히 2); `hop3` = H3 = N³(s) \ (H1 ∪ H2 ∪ {s}) (최단거리 정확히 3). `hopk_topm_<공간>` = Hk 중 cos(후보, s) 상위 m개.
+
+| 행 | Cora_full (N) (N′) | cov | 크기 중앙값 | Amazon_clothing (N) (N′) | cov | 크기 중앙값 |
 |---|---|---|---|---|---|---|
 | chance | 0.0217 | | | 0.0202 | | |
 | hop1 | 0.5861 (0.5670) | 1.0000 | 4 | 0.6211 (0.6760) | 1.0000 | 3 |
@@ -48,13 +70,17 @@
 | hop3_top1_a2x | 0.5189 (0.5189) | 0.9572 | 1 | 0.5297 (0.5297) | 0.9211 | 1 |
 | hop3_top5_a2x | 0.4809 (0.4816) | 0.9572 | 5 | 0.5079 (0.5116) | 0.9211 | 5 |
 
-top-m 행: Hk 안에서 cos(후보, s)(공간 raw 또는 a2x, 각각 L2 행 정규화) 상위 m개. Hk가 m보다 작으면 있는 만큼.
+`hop1` micro는 정의상 edge 동질도(양방향 edge 기준)와 같아야 하며 같다(G-consist, §3).
 
-### 2.3 M2 PPR
+### 2.3 M2 PPR — 값: (N) macro (괄호 (N′) micro), hop 구성비는 쌍 비율
 
-π_s = α e_s + (1−α) π_s D⁻¹A, 소스 청크 2048, GPU 0, 반복 상한 100 / 최대 변화 < 1e-6. 자기 자신 제외 상위 100. 반복 수: α=0.15 86회(두 ds), α=0.5 20회(Cora) / 20–21회(Amazon); 마지막 최대 변화 ≤ 9.5e-07; 행 합 |1 − Σπ| ≤ 7.2e-07; 자기 점수 최소 0.1505 / 0.5005 (Cora), 0.1507 / 0.5006 (Amazon). 고립 노드 0이라 제외 0.
+PPR: π_s = α e_s + (1−α) π_s D⁻¹A. s마다 s 자신을 빼고 π_s 점수순으로 정렬한 상위 100개(점수 0인 노드는 넣지 않음). 후보 집합 C(s): `ppr<α>_<a>-<b>` = 그 순위 a위–b위 노드(예: `ppr015_1-5` = α 0.15의 1–5위 5개). `ppr015_top20_topm_<공간>` = α 0.15 상위 20개 중 cos(후보, s) 상위 m개.
 
-| 행 | Cora_full 순도 | cov | hop1 / hop2 / hop≥3 | Amazon_clothing 순도 | cov | hop1 / hop2 / hop≥3 |
+hop1 / hop2 / hop≥3 = 그 순위 구간의 모든 (s, 후보) 쌍 중 후보가 s의 H1 / H2 / 그 밖(최단거리 ≥ 3)에 속하는 비율(쌍을 모은 비율; 레이블 무관).
+
+계산: 소스 청크 2048, GPU 0, float32, 반복 상한 100 / 최대 변화 < 1e-6. 반복 수 α=0.15 86회(두 ds), α=0.5 20회(Cora) / 20–21회(Amazon); 마지막 최대 변화 ≤ 9.5e-07; 행 합 |1 − Σπ| ≤ 7.2e-07; 자기 점수 최소 0.1505 / 0.5005 (Cora), 0.1507 / 0.5006 (Amazon). 고립 노드 0이라 제외 0.
+
+| 행 | Cora_full (N) (N′) | cov | hop1 / hop2 / hop≥3 | Amazon_clothing (N) (N′) | cov | hop1 / hop2 / hop≥3 |
 |---|---|---|---|---|---|---|
 | chance | 0.0217 | | | 0.0202 | | |
 | ppr015_1-5 | 0.5686 (0.5667) | 1.0000 | 0.712 / 0.258 / 0.030 | 0.5913 (0.5881) | 1.0000 | 0.631 / 0.302 / 0.067 |
@@ -72,11 +98,13 @@ top-m 행: Hk 안에서 cos(후보, s)(공간 raw 또는 a2x, 각각 L2 행 정�
 | ppr015_top20_top1_a2x | 0.6680 (0.6680) | 1.0000 | | 0.7036 (0.7036) | 1.0000 | |
 | ppr015_top20_top5_a2x | 0.6107 (0.6100) | 1.0000 | | 0.6494 (0.6485) | 1.0000 | |
 
-coverage < 1인 구간: PPR 점수가 0보다 큰 후보가 그 순위까지 없는 노드(작은 연결 성분)는 그 구간이 비어 있다.
+coverage < 1: PPR 점수가 0보다 큰 노드가 그 순위까지 없는 s(작은 연결 성분에 속한 노드)는 그 구간이 비어 있어 (N)에서 빠진다.
 
 ### 2.4 M3 support 차수 5분위
 
-경계(값 기준 분위, `x ≤ 경계`가 아래 bin): Cora_full [2, 3, 5, 9], Amazon_clothing [1, 2, 4, 9]. 차수가 정수라 bin 크기가 고르지 않다.
+bin = s의 차수(A 기준)로 나눈 값 기준 5분위. 경계(`차수 ≤ 경계`가 아래 bin): Cora_full [2, 3, 5, 9], Amazon_clothing [1, 2, 4, 9]. 차수가 정수라 bin 크기가 고르지 않다.
+
+**위 표 — 값: (N) macro (괄호 (N′) micro), 해당 bin에 속한 s만 대상.** 후보 집합은 2.2·2.3과 같다(`ppr015_1-10` = α 0.15 1–10위). coverage도 bin 안의 s 대비.
 
 | ds | bin | 차수 | 노드 | hop1 | hop2 | hop2_top1_a2x | ppr015_1-10 | cov hop1 / hop2 / ppr |
 |---|---|---|---|---|---|---|---|---|
@@ -91,7 +119,14 @@ coverage < 1인 구간: PPR 점수가 0보다 큰 후보가 그 순위까지 없
 | Amazon_clothing | Q4 | 5–9 | 4,669 | 0.6391 (0.6407) | 0.5266 (0.5794) | 0.6981 (0.6981) | 0.6108 (0.6104) | 1.000 / 0.993 / 1.000 |
 | Amazon_clothing | Q5 | 10–251 | 4,523 | 0.6800 (0.7060) | 0.5541 (0.5600) | 0.7056 (0.7056) | 0.6771 (0.6771) | 1.000 / 0.999 / 1.000 |
 
-에피소드 조건 행: `hw.purity.build_pool` 풀(seed 1212, 2000 에피소드 × 50 자기 클래스 (query, support) 쌍), `select_neighbors_pick`(raw, max). 쌍 평균, support 차수 bin별.
+**아래 표 — 값: (P) 에피소드 쌍 비율.** 대상 = `hw.purity.build_pool`이 만드는 seed 1212 학습 풀(`hw/run.py`가 seed 1212에서 학습하는 것과 같은 2000 에피소드)의 에피소드마다, pseudo-label이 같은 (pseudo-query q, support s) 쌍 5-way × 10 query = 50쌍, 합계 100,000쌍. bin = s의 차수 분위(위 표와 같은 경계). 각 쌍에서 n = `select_neighbors_pick(raw 선택 임베딩, pick=max)`가 그 (q, s)에 고른 s의 1-hop 이웃(유효 이웃이 없으면 s 자신, = `nbr_raw` arm의 선택).
+
+| 열 | 해당 bin의 쌍 중 비율 |
+|---|---|
+| `query_eq_support` | y_q = y_s (NaQ pseudo-query가 support와 같은 클래스) |
+| `nbr_eq_support` | y_n = y_s (fallback이면 n = s라 참) |
+| `nbr_eq_query` | y_n = y_q |
+| `fallback_frac` | s에 유효 이웃(q 자신 제외)이 없어 n = s를 쓴 쌍 |
 
 | ds | bin | 쌍 | query_eq_support | nbr_eq_support | nbr_eq_query | fallback_frac |
 |---|---|---|---|---|---|---|
@@ -108,23 +143,25 @@ coverage < 1인 구간: PPR 점수가 0보다 큰 후보가 그 순위까지 없
 | Amazon_clothing | Q5 | 17,680 | 0.6807 | 0.7448 | 0.6954 | 0.0000 |
 | Amazon_clothing | 전체 | 100,000 | 0.5977 | 0.6610 | 0.5563 | 0.0081 |
 
-"전체" 행은 `results/hw/purity/HW03a_purity_<ds>.json` 참고값(seio)과 같은 풀이다: Cora_full `query_eq_support` 0.3494, seio `raw_max.nbr_eq_support` 0.6275.
+"전체" 행은 seio `results/hw/purity/HW03a_purity_<ds>.json`과 같은 풀이다: Cora_full `query_eq_support` 0.3494 (seio 0.3494), `nbr_eq_support` 0.6275 (seio `raw_max` 0.6275).
 
 ### 2.5 M4 edge 곡률
 
-t = |N(u) ∩ N(v)|; `forman` F = 4 − d_u − d_v + 3t; `jl` = Jost–Liu 하한(지시서 식). edge 순도 = y_u == y_v, 무향 edge 1회씩. edge별 값: `cache/curv/<ds>.pt`.
+edge (u, v)마다 t = \|N(u) ∩ N(v)\|(삼각형 수), d_u, d_v; `forman` F = 4 − d_u − d_v + 3t; `jl` = Ollivier–Ricci 곡률의 Jost–Liu 하한 −(1 − 1/d_u − 1/d_v − t/min(d_u,d_v))₊ − (1 − 1/d_u − 1/d_v − t/max(d_u,d_v))₊ + t/max(d_u,d_v). `jl = 0`은 \|jl\| < 1e-9. edge별 값: `cache/curv/<ds>.pt`.
 
-| bin | Cora_full edge | 순도 | Amazon_clothing edge | 순도 |
+**아래 두 표 — 값: (E) edge 비율** (그 bin의 무향 edge 중 y_u = y_v인 비율).
+
+| bin | Cora_full edge 수 | (E) | Amazon_clothing edge 수 | (E) |
 |---|---|---|---|---|
 | chance | | 0.0217 | | 0.0202 |
 | 전체 | 63,421 | 0.5670 | 91,680 | 0.6760 |
 | jl < 0 | 56,125 | 0.5544 | 73,323 | 0.6715 |
-| jl = 0 (\|x\| < 1e-9) | 4,108 | 0.6064 | 7,147 | 0.6001 |
+| jl = 0 | 4,108 | 0.6064 | 7,147 | 0.6001 |
 | jl > 0 | 3,188 | 0.7381 | 11,210 | 0.7533 |
 | t = 0 | 17,122 | 0.4800 | 13,077 | 0.5571 |
 | t ≥ 1 | 46,299 | 0.5992 | 78,603 | 0.6957 |
 
-5분위 (각 칸: 범위 · edge 수 · 순도)
+5분위: 대상 edge를 그 값(`jl` 또는 `forman`)의 값 기준 5분위로 나눔(`x ≤ 경계`가 아래 bin). "t ≥ 1 안 `jl`" = t ≥ 1인 edge만 모아 `jl`로 5분위. 각 칸: 값 범위 · edge 수 · (E).
 
 | 분위 | `jl` Cora_full | `jl` Amazon_clothing | `forman` Cora_full | `forman` Amazon_clothing | t ≥ 1 안 `jl` Cora_full | t ≥ 1 안 `jl` Amazon_clothing |
 |---|---|---|---|---|---|---|
@@ -136,9 +173,9 @@ t = |N(u) ∩ N(v)|; `forman` F = 4 − d_u − d_v + 3t; `jl` = Jost–Liu 하�
 
 경계: `jl` Cora [−1.4233, −1.1515, −0.8333, −0.3750], Amazon [−0.9742, −0.6961, −0.4333, −0.0000]; `forman` Cora [−38, −20, −11, −4], Amazon [−63, −30, −13, −3]; t ≥ 1 안 `jl` Cora [−1.3422, −1.0821, −0.7895, −0.3983], Amazon [−0.9429, −0.6823, −0.4500, −0.1351].
 
-노드 중심 (support s의 1-hop을 이어 주는 edge의 `jl` 부호로 나눔)
+**노드 중심 표 — 값: (N) macro (괄호 (N′) micro).** 후보 집합 C(s): `nbr_jl>0` = s와 `jl > 0` edge로 이어진 이웃; `nbr_jl<=0` = `jl ≤ 0`(0 포함) edge로 이어진 이웃. 두 집합의 합 = H1. coverage = 그 집합이 비지 않은 s의 비율(전체 노드 대비).
 
-| 행 | Cora_full 순도 | cov | 크기 중앙값 | Amazon_clothing 순도 | cov | 크기 중앙값 |
+| 행 | Cora_full (N) (N′) | cov | 크기 중앙값 | Amazon_clothing (N) (N′) | cov | 크기 중앙값 |
 |---|---|---|---|---|---|---|
 | nbr_jl>0 | 0.7397 (0.7381) | 0.1952 | 1 | 0.6919 (0.7533) | 0.2520 | 2 |
 | nbr_jl<=0 | 0.5775 (0.5580) | 0.9818 | 4 | 0.6122 (0.6652) | 0.9734 | 3 |
@@ -148,23 +185,25 @@ t = |N(u) ∩ N(v)|; `forman` F = 4 − d_u − d_v + 3t; `jl` = Jost–Liu 하�
 | 게이트·확인 | 값 | 판정 |
 |---|---|---|
 | G-toy (`python -m hw.measure_positive --selftest`) | 32/32 OK: P5 가운데 edge t 0, d 2·2, jl 0, forman 0; 3–3 트리 edge t 0, d 3·3, jl −0.666666666667, forman −2; K4 edge t 2, d 3·3, jl 0.666666666667, forman 4; P5 가운데 노드 \|H1\| 2 = {1,3}, \|H2\| 2 = {0,4}, \|H3\| 0; PPR(P5·K4·트리 × α 0.15·0.5) 행 합 \|Δ\| ≤ 3.6e-07, 자기 점수 ≥ α. `results/measure/HW04m_selftest.json` | 통과 |
-| G-consist | hop1 micro = edge 동질도(양방향): Cora 0.567036 = 0.567036, Amazon 0.675971 = 0.675971, \|Δ\| 0 | 통과 |
+| G-consist | `hop1` (N′) micro = edge 동질도(양방향 edge 기준): Cora 0.567036 = 0.567036, Amazon 0.675971 = 0.675971, \|Δ\| 0 | 통과 |
 | G-tag | G-toy + G-consist + 두 ds 출력 | `hw04m` = `43e71a4` push |
 | purity.py 분리 재현 | `python -m hw.purity --dataset Cora_full --seed 1212` (스크래치 경로) vs `results/hw/purity/HW03a_purity_Cora_full.json`: 수치 25개, 최대 \|Δ\| 6.0e-05 (`selectors.bgrl_contrast.nbr_eq_query`), 0이 아닌 항목 11개(모두 selector 행), `reference.*` 4개는 0 | ≤ 0.005 |
 | Â²X | `hw/trainfree.py`에 함수 없음 → 같은 식 `hw.structure.a2x_trainfree`; trainfree 식·독립 Â 구성 대비 max \|Δ\| 0 (두 ds) | — |
 | 학습 코드 불변 | `git diff --stat hw03a..HEAD -- hw/run.py hw/neighbors.py hw/losses.py hw/weights.py hw/evaluate.py configs/hw.json` → `configs/hw.json | 6 +++++-` (HW03a-d `c615c94`의 arm 3개 추가, 태그 `hw03a` 이후 커밋). 이번 작업 기준 `git diff --stat c615c94..HEAD -- <같은 파일들>` → 비어 있음 | 이번 작업 변경 없음 |
 
-| ID | 기준 | 값 (Cora_full / Amazon_clothing) | 판정 |
-|---|---|---|---|
-| HWP026 | `hop1 − hop2` ≥ 10%p, 두 ds | +16.37 / +9.25%p | 미충족 (Amazon) |
-| HWP027 | `hop2_top1_a2x` ≥ `hop1`, 두 ds | 0.6149 ≥ 0.5861 (+2.89) / 0.7091 ≥ 0.6211 (+8.79) | 충족 |
-| HWP028 | α=0.15 `ppr_1-5`·`ppr_6-10` 노드 수 가중 평균 ≥ `hop1`, 두 ds | 0.5364 vs 0.5861 (−4.96) / 0.5733 vs 0.6211 (−4.79) | 미충족 |
-| HWP029 | Q5 `hop1` < Q1 `hop1` − 5%p, 두 ds | Q5 − Q1 = −3.31 / +7.75%p | 미충족 |
-| HWP030 | `jl > 0` − `jl < 0` edge 순도 ≥ 10%p, 두 ds | +18.36 / +8.17%p | 미충족 (Amazon) |
-| HWP031 | `t ≥ 1` 안 `jl` Q5 − Q1 ≥ 5%p, 두 ds | +22.75 / +11.52%p | 충족 |
-| HWP032 | 에피소드 조건 Q1 `query_eq_support` < Q5 − 3%p, 두 ds | Q1 − Q5 = −12.68 / −12.68%p (0.2913 vs 0.4181 / 0.5540 vs 0.6807) | 충족 |
+사전 등록(지시서 §5)의 "순도"는 (N) macro다. HWP030·031은 (E), HWP032는 (P) 값으로 판정한다(지시서 기준 문구 그대로).
 
-HWP028 가중치 = 구간이 비지 않은 노드 수(coverage × N): Cora 19,793 / 18,902, Amazon 24,919 / 23,307.
+| ID | 기준 | 값의 종류 | 값 (Cora_full / Amazon_clothing) | 판정 |
+|---|---|---|---|---|
+| HWP026 | `hop1 − hop2` ≥ 10%p, 두 ds | (N) | +16.37 / +9.25%p | 미충족 (Amazon) |
+| HWP027 | `hop2_top1_a2x` ≥ `hop1`, 두 ds | (N) | 0.6149 ≥ 0.5861 (+2.89) / 0.7091 ≥ 0.6211 (+8.79) | 충족 |
+| HWP028 | α=0.15 `ppr_1-5`·`ppr_6-10`의 노드 수 가중 평균 ≥ `hop1`, 두 ds | (N) | 0.5364 vs 0.5861 (−4.96) / 0.5733 vs 0.6211 (−4.79) | 미충족 |
+| HWP029 | Q5 `hop1` < Q1 `hop1` − 5%p, 두 ds | (N), bin 안 | Q5 − Q1 = −3.31 / +7.75%p | 미충족 |
+| HWP030 | `jl > 0` edge − `jl < 0` edge ≥ 10%p, 두 ds | (E) | +18.36 / +8.17%p | 미충족 (Amazon) |
+| HWP031 | `t ≥ 1` edge 안 `jl` Q5 − Q1 ≥ 5%p, 두 ds | (E) | +22.75 / +11.52%p | 충족 |
+| HWP032 | Q1 `query_eq_support` < Q5 − 3%p, 두 ds | (P) | Q1 − Q5 = −12.68 / −12.68%p (0.2913 vs 0.4181 / 0.5540 vs 0.6807) | 충족 |
+
+HWP028 가중 평균의 가중치 = 그 구간이 비지 않은 노드 수(coverage × N): `ppr015_1-5` / `ppr015_6-10` = Cora 19,793 / 18,902, Amazon 24,919 / 23,307.
 
 ## 4. 수행 내용
 
@@ -175,8 +214,8 @@ HWP028 가중치 = 구간이 비지 않은 노드 수(coverage × N): Cora 19,79
   - `hw/purity.py`: 풀 생성 부분을 `build_pool(dataset, seed, episodes, arm)`으로 분리(호출 순서·인자 동일), `main()`은 이를 호출.
   - `CLAUDE.md` §3(스키마 두 줄), §8(HWP026–032 배정, HWP033– 미배정). `.gitignore`에 `!results/measure/*.npz`. 지시서, selftest 결과.
 - HW04m-b `43e71a4`: `results/measure/HW04m_{Cora_full,Amazon_clothing}.{json,md}`, `_nodes.npz`(308 KB / 396 KB, 커밋). 태그 `hw04m`.
+- HW04m-c `320043f`: 보고서 초판. HW04m-c2: 이 개정(값의 종류 명시, 수치 불변).
 - git 밖 캐시: `cache/ppr/{Cora_full,Amazon_clothing}_a{015,050}_top100.pt` (24 MB / 30 MB 각), `cache/curv/{Cora_full,Amazon_clothing}.pt` (2.5 MB / 3.7 MB).
-- 이 보고서: HW04m-c.
 - `results/hw/`, `results/hw_iislab4/` 쓰기 없음. 모델 학습 없음. 패키지 설치 없음.
 
 ## 5. 판단한 사항
@@ -192,6 +231,7 @@ HWP028 가중치 = 구간이 비지 않은 노드 수(coverage × N): Cora 19,79
 9. `.gitignore` 기존 규칙이 `.npz`를 막아 `!results/measure/*.npz`를 추가했다(지시서 §3). json·md는 기존 규칙으로 허용.
 10. purity.py 재현 차이(≤ 6.0e-05)는 선택기 행에서만 났고 `query_eq_support` 등 참고값 4개는 0이다. 비교 대상은 seio에서 만든 파일이다.
 11. hop3 행에도 특징 필터(top1·top5, raw·a2x)를 넣었다(§2.3 M1 "각 Hk").
+12. 에피소드 조건 행의 support 차수는 측정용 A의 차수다. 학습 경로의 `neighbor_lookup`(`data.edge_index` 기반)과 같은 그래프다(`edge_index`에 자기 루프 0, 열 수 = 2 × 무향 edge 수).
 
 ## 6. 제외·실패한 run
 
@@ -202,4 +242,4 @@ HWP028 가중치 = 구간이 비지 않은 노드 수(coverage × N): Cora 19,79
 - 측정 시간(`elapsed_seconds`): Cora_full 93.72 s (누적: 풀 10.0 / 특징 14.3 / PPR 22.0 / 노드 루프 72.9 / 에피소드 75.8 / 곡률 75.9), Amazon_clothing 133.99 s (13.2 / 19.9 / 34.1 / 113.1 / 115.9 / 116.0). purity.py 재현 27.04 s. selftest < 10 s.
 - 커밋 시각: HW04m-a 13:55:51, HW04m-b 13:58:44 (UTC). 작업 시작 시각 미기록.
 - 환경: iislab4, conda `taskns`(python 3.9.25, torch 2.4.1+cu121, scipy 1.13.1, numpy 1.26.4), `CUDA_VISIBLE_DEVICES=0`, CPU Xeon Gold 6230R (104 논리 코어).
-- HEAD: 이 보고서 커밋(HW04m-c). 직전 `43e71a4`.
+- HEAD: 이 보고서 개정 커밋(HW04m-c2). 직전 `320043f`.
