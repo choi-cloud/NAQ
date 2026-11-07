@@ -2,17 +2,18 @@
 
 2026-11-07 · 서버 seio (RTX 4080 SUPER × 1) · 브랜치 `hl/hsan-weighting` · 지시서 `instructions/HW03a_seio.md` · CLAUDE.md 개정 4(드롭 폴더 판본) · 태그 없음
 
-> 이 보고서는 단계마다 갱신한다. 현재: **s1·s2·s3 완료**, s4 미실행.
+> s1–s4 완료.
 
 ## 1. 결론
 
-- BGRL(exp004 + hw shim) 임베딩 두 개를 만들었다. Cora_full은 19,793 × 256(md5 `c2ef0115…`), Amazon_clothing은 24,919 × 256(md5 `bb1bd6d8…`)이고, G-bgrl을 통과했다.
-- 최종 epoch(400)의 cosine Top-10 클래스 일치율은 Cora_full 0.57, Amazon_clothing 0.64다. 비교 대상은 다음과 같다.
-
-| 데이터셋 | BGRL (epoch 400) | raw feature | 무작위 GCN |
-|---|---|---|---|
-| Cora_full | 0.57 | 0.38 | 0.55 |
-| Amazon_clothing | 0.64 | 0.60 | 0.64 |
+- BGRL(exp004 + hw shim) 임베딩: Cora_full 19,793×256(md5 `c2ef0115…`), Amazon_clothing 24,919×256(md5 `bb1bd6d8…`), G-bgrl 통과.
+  - `nbr_bgrl − nbr_raw`(seio 5 seed 짝지음): Amazon_clothing −0.09 (양수 3/5), Cora_full +0.62 (양수 5/5).
+- 학습 없는 순도 `nbr_eq_support`(seed 1212, 2000 에피소드):
+  - Cora_full: raw_max 0.63, raw_contrast 0.64, bgrl_max 0.59, random 0.59
+  - Amazon_clothing: raw_max 0.66, bgrl_max 0.64, random 0.62
+  - `query_eq_support`: Cora_full 0.35, Amazon_clothing 0.60
+- 학습 없는 `Â²X`(L2 행 정규화) ProtoNet test는 Cora_full 80.12, Amazon_clothing 92.72다. 같은 서버의 학습 `nbr_raw` 5 seed 평균(77.94 / 91.00)보다 각각 +2.18 / +1.72 높다.
+- 사전 등록 HWP024·HWP025는 둘 다 기준 미충족이다.
 
 ## 2. 핵심 표
 
@@ -106,6 +107,26 @@ seed별 결과(`nbr_bgrl`, test % / best_epoch / Δ vs `nbr_raw`):
 - `support_1hop_homophily`는 유효 이웃 단위 평균이고, 선택기 행은 (query, 자기 클래스 support) 쌍 단위 평균이다. 이웃이 없는 쌍(fallback)은 선택 결과가 support 자신이다.
 - 교차 확인: 160 에피소드로 돌린 `bgrl_max` 값(Amazon_clothing)이 s2의 `nbr_bgrl` seed 1212 run의 첫 평가 구간 `nbr_diag`와 소수점 4자리까지 같다(0.6286 / 0.5156 / 0.5584 / 0.3567).
 
+### 2.5 학습 없는 기준선 (ProtoNet을 특징 위에서 바로 평가, `results/hw/trainfree/`)
+
+캐시 에피소드는 valid 50 / test 500이고, 정확도 단위는 %다. Â = `data.adj` = D^-1/2 (A+I) D^-1/2이며, 독립적으로 만든 행렬과의 최대 |차이|는 두 ds 모두 8.94e-08이다.
+
+| 특징 | 행 정규화 | Cora val | Cora test (ci95) | Amazon val | Amazon test (ci95) |
+|---|---|---|---|---|---|
+| X (raw) | 없음 | 50.05 | 48.07 (0.92) | 66.25 | 66.58 (1.07) |
+| X (raw) | L2 | 67.80 | 60.50 (0.83) | 84.20 | 87.61 (0.77) |
+| ÂX | 없음 | 72.95 | 64.51 (1.02) | 70.10 | 73.64 (1.01) |
+| ÂX | L2 | 85.25 | 77.41 (0.84) | 89.55 | 91.79 (0.69) |
+| Â²X | 없음 | 77.00 | 67.57 (1.01) | 78.45 | 83.03 (0.86) |
+| Â²X | L2 | 87.70 | 80.12 (0.81) | 90.30 | 92.72 (0.65) |
+| naq_base (학습, seio 5 seed 평균 ± 표준편차) | — | 86.28 | 77.59 ± 0.70 | 87.66 | 90.80 ± 0.20 |
+| nbr_raw (학습, seio 5 seed 평균 ± 표준편차) | — | 86.63 | 77.94 ± 0.61 | 88.11 | 91.00 ± 0.20 |
+
+- 학습 없는 값은 결정적(seed 무관)이라 짝지은 비교가 아니다. 학습 arm의 seed 평균과 나란히 적었다.
+- `Â²X`(L2) − `nbr_raw` 평균: Cora_full +2.18, Amazon_clothing +1.72.
+- `ÂX`(L2) − `nbr_raw` 평균: Cora_full −0.53, Amazon_clothing +0.79.
+- 학습 run의 best epoch 선택에는 validation 50 tasks를 썼다. 학습 없는 값에는 선택 단계가 없다.
+
 ## 3. 게이트·사전 등록 대조표
 
 | ID | 기준 | 측정값 | 통과 여부 |
@@ -163,18 +184,41 @@ seed별 결과(`nbr_bgrl`, test % / best_epoch / Δ vs `nbr_raw`):
   - 설정은 arm `nbr_bgrl`의 프로토콜과 `bgrl_dir`(`cache/bgrl`)을 쓴다.
 - 실행: `python -m hw.purity --dataset <ds>`(seed 1212, 2000 에피소드). 소요는 Cora_full 8.06 s, Amazon_clothing 9.91 s다.
 
+### HW03a-s4 (이 커밋, 사람 지시로 추가된 단계)
+- `hw/trainfree.py`(새 파일)
+  - 특징 X, ÂX, Â²X 각각에 대해 미정규화와 L2 행 정규화를 평가한다(6가지).
+  - 평가는 `hw.evaluate.evaluate`를 그대로 쓰고, 에피소드는 `hw.episodes.build_eval_pools`로 캐시에서 읽는다.
+  - 프로토콜 인자는 arm `naq_base` 설정을 쓴다. `seed_everything(1212)`은 `load_data`의 클래스 셔플에만 영향이 있고, 평가 에피소드는 캐시에서 온다.
+  - 레이블은 `evaluate` 안에서만 쓴다.
+- 확인
+  - Â가 `data.adj`와 같은지: `edge_index`로 (A+I)를 따로 만들어 D^-1/2 (A+I) D^-1/2를 계산했다. `data.adj`와의 최대 |차이|는 8.94e-08이다.
+  - 두 ds의 `edge_index`는 대칭이고 중복과 self-loop이 없다(s1에서 확인).
+  - 실행 전후 캐시 md5에 변화가 없다.
+- 소요: Cora_full 1.86 s, Amazon_clothing 3.47 s.
+
 ## 5. 판단한 사항
 
 1. exp004 출력 이름은 지시서가 예상한 것과 같다(`out/exp004/exp004_<ds>_embeddings.pt`).
 2. 이 임베딩은 석휘 exp003의 `dropped_normalized_adj` 판본이 아니라 hw shim으로 만든 것이다. 이후 모든 문서에서 "BGRL(exp004 + hw shim)"으로 적는다.
 3. `infonce_exp003` baseline의 `missing`은 그대로 두었다(사람 지시).
 
+4. 커밋 직전 `git pull --rebase --autostash`를 쓰는 과정에서 s2 커밋 `9b1c214`에서 수정 파일(보고서·summary·paired)이 빠졌다. 이미 push한 뒤라 이력은 고치지 않고, 후속 커밋 `c34c8db`로 넣었다. s3부터는 `git stash -u` → `pull --rebase` → `stash pop` → `add` → `commit` 순서로 했다.
+5. `paired_nbr_raw_cos.md`는 s2 집계에서 `--ref`로 다시 만들지 않아 HW02 판본 그대로다.
+
 ## 6. 제외·실패·붕괴 run
 
-- 없음(s1).
+- 없다. s2의 10 run 모두 completed이고 붕괴는 0이다.
 
 ## 7. 소요 시간, 환경, HEAD
 
-- s1: 11:33–11:46 UTC(멈춤·지시 대기 구간 제외).
-- 환경: RTX 4080 SUPER, conda `taskns`(torch 2.4.1+cu121).
-- HEAD: s1 커밋.
+- 단계별 소요 (UTC, 멈춤·지시 대기 구간 제외)
+
+| 단계 | 시간 | 비고 |
+|---|---|---|
+| s1 | 11:33–11:46 | exp004 실행 43 s |
+| s2 | 12:20–12:27 | 10 run, 작업자 2개 |
+| s3 | 12:29–12:36 | |
+| s4 | 12:36–12:40 | |
+
+- 환경: RTX 4080 SUPER(다른 사용자 프로세스 없음), conda `taskns`(torch 2.4.1+cu121).
+- 커밋: s1 `92ac844`, s2 `9b1c214`·`c34c8db`, s3 `43a0d6e`, s4는 이 커밋. 태그 없음(지시서).
