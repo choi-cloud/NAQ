@@ -6,11 +6,21 @@
     "lr": 1e-4, "epochs": 2000, "eval_every": 160,
     "temperature": 0.5,
     "valid_tasks": 50, "test_tasks": 500,
-    "seed": 1212, "device": 0
+    "seed": 1212, "device": 0,
+    "hsan": null
   },
   "arms": {
     "naq_base": { "loss": "original", "note": "L_original만 (석휘 새 계열 exp001 대응 가정, 미확인)" },
     "nbr_raw":  { "loss": "original+neighbor", "selector": "raw",  "lambda_neighbor": 0.1, "max_neighbors": 0, "note": "= zip exp015 (.sh 값)" },
-    "nbr_bgrl": { "loss": "original+neighbor", "selector": "bgrl", "lambda_neighbor": 1.0, "max_neighbors": 0, "bgrl_dir": "cache/bgrl", "note": "= zip exp016 (.sh 값)" }
+    "nbr_bgrl": { "loss": "original+neighbor", "selector": "bgrl", "lambda_neighbor": 1.0, "max_neighbors": 0, "bgrl_dir": "cache/bgrl", "note": "= zip exp016 (.sh 값)" },
+
+    "hsan_p_orig_b2":     { "base": "nbr_raw", "hsan": { "mode": "p",  "apply": "orig", "beta": 2, "space": "gcn", "logit": "euclid_gradscale" } },
+    "hsan_p_both_b2":     { "base": "nbr_raw", "hsan": { "mode": "p",  "apply": "both", "beta": 2, "space": "gcn", "logit": "euclid_gradscale" } },
+    "hsan_pn_orig_b2":    { "base": "nbr_raw", "hsan": { "mode": "pn", "apply": "orig", "beta": 2, "space": "gcn", "logit": "euclid_gradscale" } },
+    "hsan_pn_both_b2":    { "base": "nbr_raw", "hsan": { "mode": "pn", "apply": "both", "beta": 2, "space": "gcn", "logit": "euclid_gradscale" } },
+    "hsan_p_orig_b2_raw": { "base": "nbr_raw", "hsan": { "mode": "p",  "apply": "orig", "beta": 2, "space": "raw", "logit": "euclid_gradscale" } },
+
+    "nbr_raw_cos":         { "base": "nbr_raw", "hsan": { "mode": "none", "logit": "cos_hsan", "tau_cos": 0.5 }, "note": "가중치 없음, 두 항 cos logit (cos 쌍 대조군)" },
+    "hsan_pn_orig_b2_cos": { "base": "nbr_raw", "hsan": { "mode": "pn", "apply": "orig", "beta": 2, "space": "gcn", "logit": "cos_hsan", "tau_cos": 0.5 } }
   }
 }

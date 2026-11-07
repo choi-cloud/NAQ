@@ -8,14 +8,17 @@ Outputs results/hw/<arm>/<ds>/seed<S>/{metrics.json, train.log}. No checkpoints.
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
+from collections import deque
 from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 from data import load_data
@@ -27,6 +30,7 @@ from hw.episodes import build_eval_pools, build_train_pool
 from hw.evaluate import evaluate
 from hw.losses import episode_loss
 from hw.neighbors import build_neighbor_lookup, load_selection_embeddings
+from hw.weights import DIAG_KEYS
 
 RESULTS_ROOT = Path("results/hw")
 FIRST_EPISODES_LOGGED = 5
@@ -86,6 +90,8 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     lambda_neighbor = float(cfg.get("lambda_neighbor", 0.0))
     max_neighbors = int(cfg.get("max_neighbors", 0))
     selector = cfg.get("selector")
+    hsan = cfg.get("hsan")
+    hsan_diag_keys = [f"{term}_{key}" for term in ("orig", "nbr") for key in DIAG_KEYS]
 
     out_dir = RESULTS_ROOT / arm / dataset / f"seed{seed}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -111,6 +117,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         "device": str(device),
         "settings": vars(args),
         "neighbor_contrastive": {"temperature": temperature, "lambda_neighbor": lambda_neighbor, "max_neighbors": max_neighbors, "selector": selector},
+        "hsan": hsan,
         "protocol": {
             "sampling": "original NaQ-Feat top-10 raw-feature pseudo-queries",
             "augmentation": "none; single original graph",
@@ -139,6 +146,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             selection, selection_path = load_selection_embeddings(selector, features, dataset, num_nodes, device, cfg.get("bgrl_dir"))
             if selection_path is not None:
                 result["selection_embedding_path"] = selection_path
+        space_features = None
+        if hsan is not None and hsan.get("space") == "raw":
+            space_features = F.normalize(features.detach(), p=2, dim=1)  # no RNG
         config = [("GCN", (d, 2 * args.latent), True), ("GCN", (2 * args.latent, args.latent), True), ("linear", (args.latent, args.n_way), True)]
         model = ProtoNet(args, config, data).to(device)
         neighbor_lookup = build_neighbor_lookup(data.edge_index, num_nodes) if loss_kind != "original" else None
@@ -149,6 +159,8 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         best_validation = -float("inf")
         best_state = None
         losses, accuracies, original_losses, neighbor_losses, neighbor_counts, valid_fractions = [], [], [], [], [], []
+        hsan_buffers = {key: [] for key in hsan_diag_keys}
+        recent_diagnostics = deque(maxlen=5)
         for epoch, (id_spt, y_spt, id_query, y_query) in tqdm(enumerate(train_pool, 1), total=len(train_pool), desc=dataset, file=sys.__stderr__):
             model.train()
             embeddings = model.network(features, adj=data.adj)
@@ -164,7 +176,20 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 neighbor_lookup=neighbor_lookup,
                 lambda_neighbor=lambda_neighbor,
                 max_neighbors=max_neighbors,
+                hsan=hsan,
+                space_features=space_features,
             )
+            loss_value = float(loss.detach().item())
+            if not math.isfinite(loss_value):  # G4: stop this run, record status "nan"
+                result["status"] = "nan"
+                result["nan_episode"] = epoch
+                result["nan_episode_diagnostics"] = {k: (v if v is None or math.isfinite(v) else str(v)) for k, v in diagnostics.items()}
+                result["nan_previous_diagnostics"] = list(recent_diagnostics)
+                result["elapsed_seconds"] = round(time.time() - started, 2)
+                save_json(json_path, result)
+                print(f"[hw.run:{arm}] {dataset} seed={seed} non-finite loss at episode {epoch}; status=nan", flush=True)
+                return result
+            recent_diagnostics.append({"epoch": epoch, **diagnostics})
             model.meta_optimizer.zero_grad()
             loss.backward()
             model.meta_optimizer.step()
@@ -174,8 +199,14 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             neighbor_losses.append(diagnostics["neighbor_loss"])
             neighbor_counts.append(diagnostics["mean_support_neighbors_considered"])
             valid_fractions.append(diagnostics["fraction_valid_neighbor_selections"])
+            for key in hsan_diag_keys:
+                if diagnostics.get(key) is not None:
+                    hsan_buffers[key].append(diagnostics[key])
             if epoch <= FIRST_EPISODES_LOGGED:
                 result["first_episodes"].append({"epoch": epoch, "loss": losses[-1], **diagnostics})
+                if hsan is not None:
+                    stats = " ".join(f"{key}={diagnostics[key]:.4f}" for key in hsan_diag_keys if diagnostics.get(key) is not None)
+                    print(f"[episode {epoch}] loss={losses[-1]:.4f} original={diagnostics['original_loss']:.4f} neighbor={diagnostics['neighbor_loss']:.4f} {stats}", flush=True)
             if epoch % eval_every != 0 and epoch != args.epoch:
                 continue
             model.eval()
@@ -193,6 +224,10 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 "validation": validation,
                 "elapsed_seconds": round(time.time() - started, 2),
             }
+            if hsan is not None:
+                record["hsan_diag"] = {key: (float(np.mean(values)) if values else None) for key, values in hsan_buffers.items()}
+                for values in hsan_buffers.values():
+                    values.clear()
             result["epochs"].append(record)
             print(
                 f"[Epoch {epoch:5d}] loss={record['train_loss_mean']:.4f} "
@@ -237,7 +272,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
 
 def main():
     cli = parse_cli()
-    run(cli.arm, cli.dataset, cli.seed, cli.device)
+    result = run(cli.arm, cli.dataset, cli.seed, cli.device)
+    if result["status"] == "nan":
+        sys.exit(3)
 
 
 if __name__ == "__main__":
