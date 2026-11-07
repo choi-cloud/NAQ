@@ -2,7 +2,7 @@
 
 2026-11-07 · 서버 seio (RTX 4080 SUPER × 1) · 브랜치 `hl/hsan-weighting` · 지시서 `instructions/HW03a_seio.md` · CLAUDE.md 개정 4(드롭 폴더 판본) · 태그 없음
 
-> 이 보고서는 단계마다 갱신한다. 현재: **s1·s2 완료**, s3–s4 미실행.
+> 이 보고서는 단계마다 갱신한다. 현재: **s1·s2·s3 완료**, s4 미실행.
 
 ## 1. 결론
 
@@ -84,13 +84,35 @@ seed별 결과(`nbr_bgrl`, test % / best_epoch / Δ vs `nbr_raw`):
 - 마지막 구간의 `fraction_valid_neighbor_selections`는 Cora_full 0.9990–0.9994, Amazon_clothing 0.9985–0.9988이다.
 - `nbr_bgrl`(λ 1.0)과 `nbr_raw`(λ 0.1)는 λ_neighbor도 다르다(각각 exp016·exp015의 `.sh` 값).
 
+### 2.4 학습 없는 이웃 순도 (seed 1212, 학습 에피소드 2000개 × 자기 클래스 쌍 50개, `results/hw/purity/`)
+
+| 참고 행 | Cora_full | Amazon_clothing |
+|---|---|---|
+| query_eq_support | 0.3494 | 0.5977 |
+| support_1hop_homophily | 0.5621 | 0.6686 |
+| multi_nbr_frac | 0.8240 | 0.7288 |
+| fallback_frac | 0.0046 | 0.0081 |
+
+| 선택기 | Cora nbr_eq_support | Cora nbr_eq_query | Cora pos_nbr_cos_raw | Amazon nbr_eq_support | Amazon nbr_eq_query | Amazon pos_nbr_cos_raw |
+|---|---|---|---|---|---|---|
+| raw_max | 0.6275 | 0.3342 | 0.1730 | 0.6610 | 0.5563 | 0.4434 |
+| raw_contrast | 0.6425 | 0.2928 | 0.1057 | 0.6357 | 0.4990 | 0.2964 |
+| raw_random | 0.5871 | 0.2896 | 0.1090 | 0.6209 | 0.5076 | 0.3071 |
+| bgrl_max | 0.5937 | 0.3472 | 0.1258 | 0.6395 | 0.5451 | 0.3576 |
+| bgrl_contrast | 0.5478 | 0.2361 | 0.0976 | 0.5980 | 0.4732 | 0.2721 |
+| bgrl_random | 0.5871 | 0.2896 | 0.1090 | 0.6209 | 0.5076 | 0.3071 |
+
+- `raw_random`과 `bgrl_random`은 같은 값이다. `random`은 선택 공간을 쓰지 않고, 두 경우 모두 같은 Generator(seed + 7919)를 에피소드 순서대로 쓴다.
+- `support_1hop_homophily`는 유효 이웃 단위 평균이고, 선택기 행은 (query, 자기 클래스 support) 쌍 단위 평균이다. 이웃이 없는 쌍(fallback)은 선택 결과가 support 자신이다.
+- 교차 확인: 160 에피소드로 돌린 `bgrl_max` 값(Amazon_clothing)이 s2의 `nbr_bgrl` seed 1212 run의 첫 평가 구간 `nbr_diag`와 소수점 4자리까지 같다(0.6286 / 0.5156 / 0.5584 / 0.3567).
+
 ## 3. 게이트·사전 등록 대조표
 
 | ID | 기준 | 측정값 | 통과 여부 |
 |---|---|---|---|
 | G-bgrl | (a)(b)(c), 두 ds | 모두 ✓ | 통과 |
 | HWP024 | `nbr_bgrl − nbr_raw` ≥ 0, 두 ds (seio 5 seed) | Amazon_clothing −0.09 (3/5), Cora_full +0.62 (5/5) | 기준 미충족 (Amazon_clothing) |
-| HWP025 | `nbr_eq_support`: max(bgrl) ≥ max(raw) > contrast > random | s3 미실행 | — |
+| HWP025 | `nbr_eq_support`: max(bgrl) ≥ max(raw) > contrast > random, 같은 공간 안 순서 포함, 두 ds | max(bgrl) − max(raw): Cora −0.0338, Amazon −0.0215. raw 공간: Cora contrast 0.6425 > max 0.6275 > random 0.5871; Amazon max 0.6610 > contrast 0.6357 > random 0.6209. bgrl 공간: Cora max 0.5937 > random 0.5871 > contrast 0.5478; Amazon max 0.6395 > random 0.6209 > contrast 0.5980 | 기준 미충족 |
 
 ## 4. 수행 내용
 
@@ -131,6 +153,15 @@ seed별 결과(`nbr_bgrl`, test % / best_epoch / Δ vs `nbr_raw`):
 - run 목록 `results/hw/HW03a_s2.txt`: `nbr_bgrl` × 2 ds × seed 1212–1216. `GPUS=0 WORKERS=2 hw/run_queue.sh`로 12:20:17–12:27:11 UTC(6분 54초)에 돌렸다. run당 `elapsed_seconds`는 73.3–83.4 s다.
 - `python -m hw.summarize --ref nbr_raw --ref naq_base`를 실행했다. `paired_nbr_raw_cos.md`는 이번에 다시 만들지 않았다(HW02 판본 그대로).
 - 실행 전에 iislab4 커밋 `f8a6604`(HW03a-a: `pick`, 진단, collapse 표시)와 `0d9fbd7`을 pull했다. 비교 대상인 seio `naq_base`·`nbr_raw` 5 seed는 HW02(그 이전 코드)에서 돌린 run이다. 이 서버에서는 회귀 확인을 다시 하지 않았다(지시서에 해당 단계 없음).
+
+### HW03a-s3
+- 선행 조건 `HW03a-a [iislab4]` 커밋(`f8a6604`)은 s1 커밋 직전 pull로 이미 받았다. 대기 시간은 0이었다.
+- `hw/purity.py`(새 파일)
+  - 에피소드 풀은 `hw/run.py`와 같은 경로로 만든다. 순서는 seed → load_data → set_device → add_diffusion → 선택 임베딩 → ProtoNet 생성(학습 없음) → neighbor lookup → train_pool이다.
+  - 선택은 `hw.neighbors.select_neighbors_pick`을 쓰고, 측정은 `hw.run.neighbor_diagnostics`를 쓴다. homophily에는 `hw.neighbors._eligible`을 쓴다. 셋 다 import만 했고 다시 구현하지 않았다.
+  - 레이블 사용은 측정 전용이다(`# measurement-only label use`).
+  - 설정은 arm `nbr_bgrl`의 프로토콜과 `bgrl_dir`(`cache/bgrl`)을 쓴다.
+- 실행: `python -m hw.purity --dataset <ds>`(seed 1212, 2000 에피소드). 소요는 Cora_full 8.06 s, Amazon_clothing 9.91 s다.
 
 ## 5. 판단한 사항
 
