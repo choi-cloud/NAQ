@@ -1,0 +1,116 @@
+{
+  "dataset": "Cora_full",
+  "seed": 1212,
+  "graph": {
+    "nodes": 19793,
+    "undirected_edges": 63421,
+    "degree_median": 4.0,
+    "source": "hw.structure.normalize_graph(data.edge_index)"
+  },
+  "chance": 0.021698384677613983,
+  "definitions": {
+    "graph_jaccard": "J_ij = c_ij / (d_i + d_j - c_ij), c_ij = (A A)_ij = |N(i) \u2229 N(j)|; pairs i < j with c_ij > 0 (others J = 0)",
+    "ppr_jaccard": "Jaccard of the PPR (alpha 0.15) top-20 sets (cache/ppr/<ds>_a015_top100.pt, self excluded); pairs with overlap > 0",
+    "same_class": "share of the pairs with J >= theta whose GT classes match (merge precision)",
+    "coverage": "share of all nodes with at least one partner at J >= theta",
+    "partners_median": "median number of such partners per node (all nodes incl. 0; and covered nodes only)",
+    "pair_distributions": "100000 uniform same-class pairs (i != j) and 100000 uniform different-class pairs, numpy Generator seed 20261108"
+  },
+  "graph_pairs_nonzero": 785754,
+  "ppr_pairs_nonzero": 6939461,
+  "graph_theta": {
+    "0.1": {
+      "pairs": 255474,
+      "same_class": 0.4718875502008032,
+      "coverage": 0.9629161824887587,
+      "partners_median_all_nodes": 17.0,
+      "partners_median_covered_nodes": 17.0
+    },
+    "0.2": {
+      "pairs": 81169,
+      "same_class": 0.5237960305042566,
+      "coverage": 0.8923356742282625,
+      "partners_median_all_nodes": 4.0,
+      "partners_median_covered_nodes": 5.0
+    },
+    "0.3": {
+      "pairs": 29395,
+      "same_class": 0.5469637693485286,
+      "coverage": 0.6562926287071187,
+      "partners_median_all_nodes": 1.0,
+      "partners_median_covered_nodes": 2.0
+    },
+    "0.5": {
+      "pairs": 10928,
+      "same_class": 0.5453879941434846,
+      "coverage": 0.33739200727529933,
+      "partners_median_all_nodes": 0.0,
+      "partners_median_covered_nodes": 1.0
+    }
+  },
+  "ppr_theta": {
+    "0.1": {
+      "pairs": 1077781,
+      "same_class": 0.41809699744196643,
+      "coverage": 0.97534481887536,
+      "partners_median_all_nodes": 74.0,
+      "partners_median_covered_nodes": 76.0
+    },
+    "0.2": {
+      "pairs": 418891,
+      "same_class": 0.49808900167346637,
+      "coverage": 0.9750922043146567,
+      "partners_median_all_nodes": 29.0,
+      "partners_median_covered_nodes": 30.0
+    },
+    "0.3": {
+      "pairs": 186898,
+      "same_class": 0.5373733266273583,
+      "coverage": 0.9636740261708685,
+      "partners_median_all_nodes": 13.0,
+      "partners_median_covered_nodes": 14.0
+    },
+    "0.5": {
+      "pairs": 62734,
+      "same_class": 0.5694519718175152,
+      "coverage": 0.8002324053958471,
+      "partners_median_all_nodes": 4.0,
+      "partners_median_covered_nodes": 5.0
+    }
+  },
+  "pair_distributions": {
+    "graph": {
+      "same_class": {
+        "zero_frac": 0.92991,
+        "median": 0.0,
+        "q90": 0.0,
+        "mean": 0.007854007005908952,
+        "n": 100000
+      },
+      "different_class": {
+        "zero_frac": 0.99757,
+        "median": 0.0,
+        "q90": 0.0,
+        "mean": 0.00020972079481778184,
+        "n": 100000
+      }
+    },
+    "ppr": {
+      "same_class": {
+        "zero_frac": 0.6658,
+        "median": 0.0,
+        "q90": 0.1111111111111111,
+        "mean": 0.03541381111069574,
+        "n": 100000
+      },
+      "different_class": {
+        "zero_frac": 0.97097,
+        "median": 0.0,
+        "q90": 0.0,
+        "mean": 0.0015639060053174183,
+        "n": 100000
+      }
+    }
+  },
+  "elapsed_seconds": 2.94
+}

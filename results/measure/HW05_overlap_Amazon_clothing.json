@@ -1,0 +1,116 @@
+{
+  "dataset": "Amazon_clothing",
+  "seed": 1212,
+  "graph": {
+    "nodes": 24919,
+    "undirected_edges": 91680,
+    "degree_median": 3.0,
+    "source": "hw.structure.normalize_graph(data.edge_index)"
+  },
+  "chance": 0.02016700971776994,
+  "definitions": {
+    "graph_jaccard": "J_ij = c_ij / (d_i + d_j - c_ij), c_ij = (A A)_ij = |N(i) \u2229 N(j)|; pairs i < j with c_ij > 0 (others J = 0)",
+    "ppr_jaccard": "Jaccard of the PPR (alpha 0.15) top-20 sets (cache/ppr/<ds>_a015_top100.pt, self excluded); pairs with overlap > 0",
+    "same_class": "share of the pairs with J >= theta whose GT classes match (merge precision)",
+    "coverage": "share of all nodes with at least one partner at J >= theta",
+    "partners_median": "median number of such partners per node (all nodes incl. 0; and covered nodes only)",
+    "pair_distributions": "100000 uniform same-class pairs (i != j) and 100000 uniform different-class pairs, numpy Generator seed 20261108"
+  },
+  "graph_pairs_nonzero": 1049476,
+  "ppr_pairs_nonzero": 5457216,
+  "graph_theta": {
+    "0.1": {
+      "pairs": 704381,
+      "same_class": 0.6040495129766419,
+      "coverage": 0.9555359364340463,
+      "partners_median_all_nodes": 31.0,
+      "partners_median_covered_nodes": 34.0
+    },
+    "0.2": {
+      "pairs": 472103,
+      "same_class": 0.6237240602156733,
+      "coverage": 0.9360327460973554,
+      "partners_median_all_nodes": 16.0,
+      "partners_median_covered_nodes": 18.0
+    },
+    "0.3": {
+      "pairs": 297941,
+      "same_class": 0.6540758069550683,
+      "coverage": 0.8812953970865605,
+      "partners_median_all_nodes": 8.0,
+      "partners_median_covered_nodes": 11.0
+    },
+    "0.5": {
+      "pairs": 173810,
+      "same_class": 0.6756055462861745,
+      "coverage": 0.7153577591396123,
+      "partners_median_all_nodes": 3.0,
+      "partners_median_covered_nodes": 7.0
+    }
+  },
+  "ppr_theta": {
+    "0.1": {
+      "pairs": 2256429,
+      "same_class": 0.45717946365695533,
+      "coverage": 0.9698222240057788,
+      "partners_median_all_nodes": 120.0,
+      "partners_median_covered_nodes": 128.0
+    },
+    "0.2": {
+      "pairs": 1465848,
+      "same_class": 0.5209885335996638,
+      "coverage": 0.9698222240057788,
+      "partners_median_all_nodes": 68.0,
+      "partners_median_covered_nodes": 70.0
+    },
+    "0.3": {
+      "pairs": 994200,
+      "same_class": 0.5847193723596862,
+      "coverage": 0.969220273686745,
+      "partners_median_all_nodes": 42.0,
+      "partners_median_covered_nodes": 44.0
+    },
+    "0.5": {
+      "pairs": 552370,
+      "same_class": 0.6510092872531094,
+      "coverage": 0.938480677394759,
+      "partners_median_all_nodes": 21.0,
+      "partners_median_covered_nodes": 24.0
+    }
+  },
+  "pair_distributions": {
+    "graph": {
+      "same_class": {
+        "zero_frac": 0.90455,
+        "median": 0.0,
+        "q90": 0.0,
+        "mean": 0.02629992552881355,
+        "n": 100000
+      },
+      "different_class": {
+        "zero_frac": 0.99877,
+        "median": 0.0,
+        "q90": 0.0,
+        "mean": 0.0002947914526439351,
+        "n": 100000
+      }
+    },
+    "ppr": {
+      "same_class": {
+        "zero_frac": 0.71674,
+        "median": 0.0,
+        "q90": 0.2903225806451613,
+        "mean": 0.07481127380872646,
+        "n": 100000
+      },
+      "different_class": {
+        "zero_frac": 0.98803,
+        "median": 0.0,
+        "q90": 0.0,
+        "mean": 0.0014682297516352355,
+        "n": 100000
+      }
+    }
+  },
+  "elapsed_seconds": 5.89
+}

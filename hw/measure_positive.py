@@ -4,6 +4,7 @@
     python -m hw.measure_positive --selftest
     python -m hw.measure_positive --energy --dataset <ds>      (HW03b: per-dimension Dirichlet energy)
     python -m hw.measure_positive --energy --selftest          (HW03b: E_raw = f^T L f check)
+    python -m hw.measure_positive --overlap --dataset <ds>     (HW05: idea-A neighborhood overlap)
 
 No training. Graph / features / labels come from hw.purity.build_pool (the hw/run.py path:
 seed -> load_data -> ... -> train_pool), so the episode-conditioned rows use the seed-<S> pool.
@@ -548,6 +549,154 @@ def energy_main(cli):
     return 0
 
 
+# ====================================================================== HW05: idea-A neighborhood overlap
+OVERLAP_THETAS = (0.1, 0.2, 0.3, 0.5)
+OVERLAP_PPR_TOP = 20
+OVERLAP_PAIRS = 100_000
+OVERLAP_SEED = 20261108
+
+
+def _set_jaccard_pairs(member):
+    """member: binary CSR [N, K-space] (row i = set S_i). Returns (i, j, J) for i < j with |S_i ∩ S_j| > 0."""
+    member = member.tocsr().astype(np.float64)
+    inter = sp.triu(member @ member.T, k=1).tocoo()
+    size = np.asarray(member.sum(axis=1)).ravel()
+    c = inter.data
+    return inter.row.astype(np.int64), inter.col.astype(np.int64), c / (size[inter.row] + size[inter.col] - c)
+
+
+def _pair_jaccard(member, i, j, chunk=20000):
+    member = member.tocsr().astype(np.float64)
+    size = np.asarray(member.sum(axis=1)).ravel()
+    out = np.zeros(i.size)
+    for s0 in range(0, i.size, chunk):
+        e = slice(s0, s0 + chunk)
+        c = np.asarray(member[i[e]].multiply(member[j[e]]).sum(axis=1)).ravel()
+        den = size[i[e]] + size[j[e]] - c
+        out[e] = np.where(den > 0, c / np.where(den > 0, den, 1), 0.0)
+    return out
+
+
+def _theta_rows(n, pi, pj, jac, same):
+    rows = {}
+    for theta in OVERLAP_THETAS:
+        keep = jac >= theta
+        partners = np.bincount(pi[keep], minlength=n) + np.bincount(pj[keep], minlength=n)
+        covered = partners > 0
+        rows[str(theta)] = {
+            "pairs": int(keep.sum()),
+            "same_class": float(same[keep].mean()) if keep.any() else None,
+            "coverage": float(covered.mean()),
+            "partners_median_all_nodes": float(np.median(partners)),
+            "partners_median_covered_nodes": float(np.median(partners[covered])) if covered.any() else None,
+        }
+    return rows
+
+
+def _dist(v):
+    v = np.asarray(v, dtype=np.float64)
+    return {"zero_frac": float((v == 0).mean()), "median": float(np.median(v)), "q90": float(np.quantile(v, 0.9)), "mean": float(v.mean()), "n": int(v.size)}
+
+
+def overlap_measure(dataset, seed):
+    from data import load_data
+    from hw.config import build_args, load_config
+    from utils import seed_everything
+
+    args = build_args(load_config("naq_base"), dataset)
+    seed_everything(seed)
+    data = load_data(args)
+    n = data.features.shape[0]
+    y = np.asarray(data.labels.detach().cpu().numpy()).astype(np.int64)  # measurement-only label use
+    num_classes = int(y.max()) + 1
+    chance = float(((np.bincount(y, minlength=num_classes) / n) ** 2).sum())  # measurement-only label use
+    a = st.normalize_graph(data.edge_index.detach().cpu().numpy(), n)
+    gi, gj, gjac = _set_jaccard_pairs(a)  # N(i) sets: c_ij = (A A)_ij, J = c / (d_i + d_j - c)
+    gsame = y[gi] == y[gj]  # measurement-only label use
+    ppr = torch.load(PPR_DIR / f"{dataset}_a015_top100.pt", weights_only=False)
+    idx = ppr["idx"][:, :OVERLAP_PPR_TOP].numpy()
+    rows_, cols_ = np.nonzero(idx >= 0)
+    pm = sp.csr_matrix((np.ones(rows_.size), (rows_, idx[rows_, cols_])), shape=(n, n))
+    pi, pj, pjac = _set_jaccard_pairs(pm)
+    psame = y[pi] == y[pj]  # measurement-only label use
+
+    rng = np.random.default_rng(OVERLAP_SEED)
+    by_class = [np.nonzero(y == c)[0] for c in range(num_classes)]  # measurement-only label use
+    sizes = np.array([len(b) for b in by_class], dtype=np.float64)
+    w = sizes * (sizes - 1)
+    cls = rng.choice(num_classes, size=OVERLAP_PAIRS, p=w / w.sum())  # same-class pair uniform over all same-class pairs
+    si = np.empty(OVERLAP_PAIRS, dtype=np.int64)
+    sj = np.empty(OVERLAP_PAIRS, dtype=np.int64)
+    for c in np.unique(cls):
+        k = np.nonzero(cls == c)[0]
+        members = by_class[c]
+        a1 = rng.integers(0, members.size, size=k.size)
+        a2 = rng.integers(0, members.size - 1, size=k.size)
+        a2 = a2 + (a2 >= a1)
+        si[k], sj[k] = members[a1], members[a2]
+    di = np.empty(0, dtype=np.int64)
+    dj = np.empty(0, dtype=np.int64)
+    while di.size < OVERLAP_PAIRS:
+        u = rng.integers(0, n, size=OVERLAP_PAIRS)
+        v = rng.integers(0, n, size=OVERLAP_PAIRS)
+        ok = y[u] != y[v]  # measurement-only label use
+        di, dj = np.concatenate([di, u[ok]]), np.concatenate([dj, v[ok]])
+    di, dj = di[:OVERLAP_PAIRS], dj[:OVERLAP_PAIRS]
+    deg = st.degrees(a)
+    return {
+        "dataset": dataset,
+        "seed": seed,
+        "graph": {"nodes": int(n), "undirected_edges": int(a.nnz // 2), "degree_median": float(np.median(deg)), "source": "hw.structure.normalize_graph(data.edge_index)"},
+        "chance": chance,
+        "definitions": {
+            "graph_jaccard": "J_ij = c_ij / (d_i + d_j - c_ij), c_ij = (A A)_ij = |N(i) ∩ N(j)|; pairs i < j with c_ij > 0 (others J = 0)",
+            "ppr_jaccard": f"Jaccard of the PPR (alpha 0.15) top-{OVERLAP_PPR_TOP} sets (cache/ppr/<ds>_a015_top100.pt, self excluded); pairs with overlap > 0",
+            "same_class": "share of the pairs with J >= theta whose GT classes match (merge precision)",
+            "coverage": "share of all nodes with at least one partner at J >= theta",
+            "partners_median": "median number of such partners per node (all nodes incl. 0; and covered nodes only)",
+            "pair_distributions": f"{OVERLAP_PAIRS} uniform same-class pairs (i != j) and {OVERLAP_PAIRS} uniform different-class pairs, numpy Generator seed {OVERLAP_SEED}",
+        },
+        "graph_pairs_nonzero": int(gi.size),
+        "ppr_pairs_nonzero": int(pi.size),
+        "graph_theta": _theta_rows(n, gi, gj, gjac, gsame),
+        "ppr_theta": _theta_rows(n, pi, pj, pjac, psame),
+        "pair_distributions": {
+            "graph": {"same_class": _dist(_pair_jaccard(a, si, sj)), "different_class": _dist(_pair_jaccard(a, di, dj))},
+            "ppr": {"same_class": _dist(_pair_jaccard(pm, si, sj)), "different_class": _dist(_pair_jaccard(pm, di, dj))},
+        },
+    }
+
+
+def overlap_markdown(r):
+    f = lambda v, d=4: "—" if v is None else f"{v:.{d}f}"  # noqa: E731
+    L = [f"# HW05 idea-A neighborhood overlap — {r['dataset']}", "",
+         f"graph: {r['graph']['nodes']} nodes, {r['graph']['undirected_edges']} undirected edges, degree median {r['graph']['degree_median']:g}; chance {r['chance']:.4f}",
+         f"pairs with overlap > 0: graph {r['graph_pairs_nonzero']}, PPR top-{OVERLAP_PPR_TOP} {r['ppr_pairs_nonzero']}", ""]
+    for name in ("graph", "ppr"):
+        L += [f"## {name} Jaccard", "", "| θ | pairs J ≥ θ | same class (merge precision) | coverage | partners median (all / covered) |", "|---|---|---|---|---|"]
+        for t, v in r[f"{name}_theta"].items():
+            L.append(f"| {t} | {v['pairs']} | {f(v['same_class'])} | {f(v['coverage'])} | {v['partners_median_all_nodes']:g} / {f(v['partners_median_covered_nodes'], 0)} |")
+        L.append("")
+    L += ["## J of random pairs", "", "| set | pairs | zero frac | median | q90 | mean |", "|---|---|---|---|---|---|"]
+    for name, d in r["pair_distributions"].items():
+        for k, v in d.items():
+            L.append(f"| {name} | {k} | {v['zero_frac']:.4f} | {v['median']:.4f} | {v['q90']:.4f} | {v['mean']:.4f} |")
+    return "\n".join(L) + "\n"
+
+
+def overlap_main(cli):
+    if not cli.dataset:
+        raise SystemExit("--dataset required")
+    started = time.time()
+    r = overlap_measure(cli.dataset, cli.seed)
+    r["elapsed_seconds"] = round(time.time() - started, 2)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUT_DIR / f"HW05_overlap_{cli.dataset}.json").write_text(json.dumps(r, indent=2), encoding="utf-8")
+    (OUT_DIR / f"HW05_overlap_{cli.dataset}.md").write_text(overlap_markdown(r), encoding="utf-8")
+    print(overlap_markdown(r))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="HW04m train-free positive-candidate purity")
     parser.add_argument("--dataset", choices=["Cora_full", "Amazon_clothing"])
@@ -555,7 +704,10 @@ def main():
     parser.add_argument("--episodes", type=int, default=2000)
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--energy", action="store_true", help="HW03b per-dimension Dirichlet energy")
+    parser.add_argument("--overlap", action="store_true", help="HW05 idea-A neighborhood overlap")
     cli = parser.parse_args()
+    if cli.overlap:
+        sys.exit(overlap_main(cli))
     if cli.energy:
         sys.exit(energy_main(cli))
     if cli.selftest:
