@@ -42,9 +42,16 @@ def episode_loss(
     nbr_term="infonce",
     extra_neg=None,
     xneg_out=None,
+    ep_query_neg=False,
+    ep_query_pos=False,
+    qep_out=None,
 ):
     if hsan is not None and (nbr_term != "infonce" or extra_neg is not None):  # HW05
         raise ValueError("nbr_term / extra_neg are not combined with hsan")
+    if hsan is not None and (ep_query_neg or ep_query_pos):  # HW06
+        raise ValueError("ep_query_neg / ep_query_pos are not combined with hsan")
+    if ep_query_pos and not ep_query_neg:  # HW06
+        raise ValueError("ep_query_pos is used only together with ep_query_neg")
     if hsan is not None:
         return episode_loss_hsan(
             embeddings, id_spt, y_spt, id_query, y_query, temperature, selection_embeddings_normalized, neighbor_lookup, lambda_neighbor, max_neighbors, hsan, space_features,
@@ -77,6 +84,24 @@ def episode_loss(
         original_loss = _info_nce(torch.cat([direct_logits, extra_logits], dim=1), extended_mask)
         if xneg_out is not None:
             xneg_out.update(extra=extra_ids, fill=fill)
+    if ep_query_neg:  # HW06: other-pseudo-class pseudo-queries as negatives (+ same-pseudo-class ones as positives)
+        q_count = query_ids.numel()
+        same = query_labels[:, None] == query_labels[None, :]
+        other = ~same
+        mate = same & ~torch.eye(q_count, dtype=torch.bool, device=device)
+        n_neg, n_pos = int(other.sum(dim=1)[0]), int(mate.sum(dim=1)[0])
+        if not (bool((other.sum(dim=1) == n_neg).all()) and bool((mate.sum(dim=1) == n_pos).all())):
+            raise ValueError("ep_query_neg expects equal-size pseudo-classes")
+        qq_logits = -(queries[:, None, :] - queries[None, :, :]).square().sum(-1) / temperature  # [Q, Q]
+        parts = [direct_logits] + ([extra_logits] if extra_neg is not None else []) + [qq_logits[other].view(q_count, n_neg)]
+        masks = [positive_mask] + ([torch.zeros_like(extra_logits, dtype=torch.bool)] if extra_neg is not None else []) + [torch.zeros((q_count, n_neg), dtype=torch.bool, device=device)]
+        if ep_query_pos:
+            parts.append(qq_logits[mate].view(q_count, n_pos))
+            masks.append(torch.ones((q_count, n_pos), dtype=torch.bool, device=device))
+        original_loss = _info_nce(torch.cat(parts, dim=1), torch.cat(masks, dim=1))
+        if qep_out is not None:
+            col = torch.arange(q_count, device=device)[None, :].expand(q_count, -1)
+            qep_out.update(neg=query_ids[col[other].view(q_count, n_neg)], pos=query_ids[col[mate].view(q_count, n_pos)] if ep_query_pos else None)
 
     diagnostics = {"original_loss": float(original_loss.detach().item())}
     if loss_kind == "original":

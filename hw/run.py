@@ -30,6 +30,7 @@ from hw.episodes import build_eval_pools, build_train_pool
 from hw.evaluate import evaluate
 from hw.losses import episode_loss
 from hw.negatives import EXTRA_NEG_MODES, NBR_TERMS, ExtraNegatives
+from hw.negatives import STRATEGY_MODES, StrategyNegatives  # HW06
 from hw.valid500 import NUM_EXISTING, load_valid500
 from hw.neighbors import ALL_PICKS, SUP_COS, build_neighbor_lookup, build_sup_cos, load_selection_embeddings, sup_cos_space
 from hw.weights import DIAG_KEYS
@@ -46,6 +47,7 @@ GEOM_SEED = 2026
 RANDOM_PICK_SEED_OFFSET = 7919
 GLOBAL_RANDOM_PICK_SEED_OFFSET = 104729  # HW03b
 VALID_TASKS = (50, 500)  # HW03b; 500 = save/valid500/<ds>.pkl, first 50 = the existing validation tasks
+NBR_DIAG_KEYS = NBR_DIAG_KEYS + ("band_cos_lo", "band_cos_hi", "qneg_eq_query", "qneg_cos_raw", "qpos_eq_query")  # HW06
 
 
 def save_json(path, value):
@@ -164,6 +166,49 @@ def geometry(embeddings):
     }
 
 
+@torch.no_grad()
+def geometry_corr(embeddings):
+    """HW06 geom_diag addition on the same fixed sample as `geometry`: mean |Pearson correlation| over the
+    off-diagonal pairs of embedding dimensions; zero-variance dimensions are excluded and counted."""
+    n = embeddings.shape[0]
+    generator = torch.Generator()
+    generator.manual_seed(GEOM_SEED)
+    index = torch.randperm(n, generator=generator)[: min(GEOM_SAMPLE, n)].to(embeddings.device)
+    z = embeddings[index].double()
+    z = z - z.mean(dim=0, keepdim=True)
+    std = z.square().mean(dim=0).sqrt()
+    live = std > 1e-12
+    zl = z[:, live] / std[live]
+    corr = (zl.T @ zl) / zl.shape[0]
+    d_live = int(live.sum())
+    off = ~torch.eye(d_live, dtype=torch.bool, device=z.device)
+    return {"dim": int(z.shape[1]), "dead_dims": int(z.shape[1] - d_live), "corr_offdiag_mean": float(corr[off].abs().mean()) if d_live > 1 else None}
+
+
+@torch.no_grad()
+def band_diagnostics(raw_normalized, id_query, xneg_out):
+    """HW06 band: per query min / max raw cos of its m chosen negatives, averaged over queries (no labels)."""
+    query_ids = torch.as_tensor(id_query, dtype=torch.long, device=raw_normalized.device).flatten()
+    cos = (raw_normalized[query_ids][:, None, :] * raw_normalized[xneg_out["extra"]]).sum(-1)
+    return {"band_cos_lo": float(cos.min(dim=1).values.mean()), "band_cos_hi": float(cos.max(dim=1).values.mean())}
+
+
+@torch.no_grad()
+def qep_diagnostics(labels, raw_normalized, id_query, qep_out):
+    """HW06 episode-query negatives / positives. measurement-only label use: GT labels feed only metrics.json.
+    qneg_eq_query = share of (q, other-pseudo-class query) pairs with the same GT class (FN rate);
+    qpos_eq_query = share of (q, same-pseudo-class other query) pairs with the same GT class (purity)."""
+    query_ids = torch.as_tensor(id_query, dtype=torch.long, device=labels.device).flatten()
+    gt_q = labels[query_ids][:, None]  # measurement-only label use
+    out = {
+        "qneg_eq_query": float((labels[qep_out["neg"]] == gt_q).float().mean()),  # measurement-only label use
+        "qneg_cos_raw": float((raw_normalized[query_ids][:, None, :] * raw_normalized[qep_out["neg"]]).sum(-1).mean()),
+    }
+    if qep_out.get("pos") is not None:
+        out["qpos_eq_query"] = float((labels[qep_out["pos"]] == gt_q).float().mean())  # measurement-only label use
+    return out
+
+
 def parse_cli():
     parser = argparse.ArgumentParser(description="HW track runner")
     parser.add_argument("--arm", required=True)
@@ -214,6 +259,10 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     if extra_neg_cfg.get("mode", "none") not in EXTRA_NEG_MODES:
         raise ValueError(f"extra_neg.mode must be one of {EXTRA_NEG_MODES}")
     geom_diag = bool(cfg.get("geom_diag", False))
+    ep_query_neg = bool(cfg.get("ep_query_neg", False))  # HW06
+    ep_query_pos = bool(cfg.get("ep_query_pos", False))
+    if ep_query_pos and not ep_query_neg:
+        raise ValueError("ep_query_pos is used only together with ep_query_neg")
     hsan_diag_keys = [f"{term}_{key}" for term in ("orig", "nbr") for key in DIAG_KEYS]
 
     out_dir = RESULTS_ROOT / arm / dataset / f"seed{seed}"
@@ -293,6 +342,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             table_started = time.time()
             extra_neg = ExtraNegatives(extra_neg_cfg["mode"], extra_neg_cfg["m"], num_nodes, device, seed, features=features, adj=data.adj)
             result["extra_neg"] = {"mode": extra_neg_cfg["mode"], "m": int(extra_neg_cfg["m"]), "setup_seconds": round(time.time() - table_started, 2)}
+            if extra_neg_cfg["mode"] in STRATEGY_MODES:  # HW06: far / band / cluster replace the placeholder above
+                extra_neg = StrategyNegatives(extra_neg_cfg, num_nodes, device, seed, dataset, features, data.adj, data.edge_index)
+                result["extra_neg"].update(extra_neg.info, setup_seconds=round(time.time() - table_started, 2))
         a2x_normalized = None
         if loss_kind != "original":  # diagnostics only (pos_nbr_cos_a2x); no RNG
             a2x_normalized = sup_cos.embeddings if (sup_cos is not None and pick_space == "a2x") else sup_cos_space("a2x", features, data.adj)
@@ -323,6 +375,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             embeddings = model.network(features, adj=data.adj)
             selection_out = {} if loss_kind != "original" else None
             xneg_out = {} if extra_neg is not None else None
+            qep_out = {} if ep_query_neg else None  # HW06
             loss, accuracy, diagnostics = episode_loss(
                 embeddings,
                 id_spt,
@@ -343,12 +396,21 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 nbr_term=nbr_term,
                 extra_neg=extra_neg,
                 xneg_out=xneg_out,
+                ep_query_neg=ep_query_neg,
+                ep_query_pos=ep_query_pos,
+                qep_out=qep_out,
             )
             if extra_neg is not None:
                 for key, value in xneg_diagnostics(data.labels, raw_normalized, id_spt, y_spt, id_query, y_query, xneg_out).items():
                     nbr_buffers[key].append(value)
             for key, value in neighbor_diagnostics(data.labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out, a2x_normalized).items():
                 nbr_buffers[key].append(value)
+            if extra_neg is not None and extra_neg_cfg["mode"] == "band":  # HW06
+                for key, value in band_diagnostics(raw_normalized, id_query, xneg_out).items():
+                    nbr_buffers[key].append(value)
+            if ep_query_neg:  # HW06
+                for key, value in qep_diagnostics(data.labels, raw_normalized, id_query, qep_out).items():
+                    nbr_buffers[key].append(value)
             loss_value = float(loss.detach().item())
             if not math.isfinite(loss_value):  # G4: stop this run, record status "nan"
                 result["status"] = "nan"
@@ -431,6 +493,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         result["best"]["test"] = testing
         if geom_diag:  # HW05: geometry of the 500-based (main) best checkpoint
             result["geom"] = geometry(clean)
+            result["geom"].update(geometry_corr(clean))  # HW06
         if v500:  # HW03b: test once per checkpoint; same epoch -> value copied
             same_epoch = result["best_50"]["epoch"] == result["best"]["epoch"]
             if same_epoch:
