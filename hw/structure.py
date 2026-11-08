@@ -167,3 +167,27 @@ def quantile_bins(values, q=5):
     edges = np.quantile(values, [i / q for i in range(1, q)])
     bins = np.searchsorted(edges, values, side="left")
     return bins, edges
+
+
+# ---------------------------------------------------------------- HW03b: per-dimension Dirichlet energy
+def incidence(a):
+    """Signed incidence B [E, N] over undirected edges u < v (row e: +1 at u, -1 at v)."""
+    u, v = undirected_edges(a)
+    e = np.arange(u.size)
+    n = a.shape[0]
+    return sp.csr_matrix((np.concatenate([np.ones(u.size), -np.ones(v.size)]), (np.concatenate([e, e]), np.concatenate([u, v]))), shape=(u.size, n))
+
+
+def dirichlet_energy_per_dim(a, x):
+    """Per column m: E_raw = 1/2 Σ_(i,j) A_ij (x_im − x_jm)² = Σ over undirected edges (x_um − x_vm)²
+    (SPGCL eq. 13), via B X with the signed incidence B; float64. x: dense array or scipy sparse."""
+    xs = sp.csr_matrix(x, dtype=np.float64)
+    diff = incidence(a) @ xs
+    return np.asarray(diff.multiply(diff).sum(axis=0)).ravel()
+
+
+def laplacian_quadratic(a, f):
+    """f^T L f with L = D − A (selftest reference)."""
+    f = np.asarray(f, dtype=np.float64)
+    lap = sp.diags(np.asarray(a.sum(axis=1)).ravel().astype(np.float64)) - a.astype(np.float64)
+    return float(f @ (lap @ f))

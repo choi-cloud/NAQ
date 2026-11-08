@@ -1,0 +1,97 @@
+{
+  "dataset": "Amazon_clothing",
+  "seed": 1212,
+  "graph": {
+    "nodes": 24919,
+    "undirected_edges": 91680,
+    "source": "hw.structure.normalize_graph(data.edge_index)"
+  },
+  "features": {
+    "shape": [
+      24919,
+      9034
+    ],
+    "dtype_in_training": "torch.float32",
+    "distinct_values": 32,
+    "binary": false,
+    "integer_valued": true,
+    "min": 0.0,
+    "max": 99.0,
+    "row_sum": {
+      "min": 2.0,
+      "q25": 20.0,
+      "median": 32.0,
+      "q75": 51.0,
+      "max": 527.0,
+      "n": 24919
+    },
+    "row_l2_norm": {
+      "min": 1.4142135623730951,
+      "q25": 5.196152422706632,
+      "median": 6.708203932499369,
+      "q75": 9.1104335791443,
+      "max": 99.55902771722914,
+      "n": 24919
+    },
+    "row_normalized_l1": false,
+    "row_normalized_l2": false,
+    "density": 0.0035138733268204304
+  },
+  "definitions": {
+    "E_raw": "1/2 sum_(i,j) A_ij (x_im - x_jm)^2 = sum over undirected edges (SPGCL eq. 13)",
+    "E_rq": "E_raw / ||x_:,m||^2 (dims with ||x_:,m|| = 0 excluded)",
+    "nnz": "number of nodes with x_im != 0",
+    "statistics_over": "dims with ||x_:,m|| > 0"
+  },
+  "dims_total": 9034,
+  "dims_zero_norm": 0,
+  "dims_used": 9034,
+  "dims_E_raw_zero": 10,
+  "summary": {
+    "E_raw": {
+      "min": 0.0,
+      "q25": 58.0,
+      "median": 173.0,
+      "q75": 595.0,
+      "max": 302841.0,
+      "n": 9034
+    },
+    "E_rq": {
+      "min": 0.0,
+      "q25": 2.865166505791506,
+      "median": 4.778964957925561,
+      "q75": 7.4204406364749085,
+      "max": 125.39285714285714,
+      "n": 9034
+    },
+    "nnz": {
+      "min": 1.0,
+      "q25": 8.0,
+      "median": 18.0,
+      "q75": 53.75,
+      "max": 5463.0,
+      "n": 9034
+    }
+  },
+  "spearman": {
+    "E_raw_vs_nnz": 0.8069252779616504,
+    "E_raw_vs_E_rq": 0.5327192323317181,
+    "E_rq_vs_nnz": 0.19186494968958318
+  },
+  "topk_overlap": {
+    "16": {
+      "E_raw_vs_nnz": 0.375,
+      "E_raw_vs_E_rq": 0.0
+    },
+    "64": {
+      "E_raw_vs_nnz": 0.53125,
+      "E_raw_vs_E_rq": 0.0
+    },
+    "512": {
+      "E_raw_vs_nnz": 0.71484375,
+      "E_raw_vs_E_rq": 0.064453125
+    }
+  },
+  "topk_tie_rule": "descending, stable argsort (ties broken by dimension index)",
+  "elapsed_seconds": 31.65
+}

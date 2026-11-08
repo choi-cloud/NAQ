@@ -2,6 +2,8 @@
 
     python -m hw.measure_positive --dataset <ds> [--seed 1212] [--episodes 2000]
     python -m hw.measure_positive --selftest
+    python -m hw.measure_positive --energy --dataset <ds>      (HW03b: per-dimension Dirichlet energy)
+    python -m hw.measure_positive --energy --selftest          (HW03b: E_raw = f^T L f check)
 
 No training. Graph / features / labels come from hw.purity.build_pool (the hw/run.py path:
 seed -> load_data -> ... -> train_pool), so the episode-conditioned rows use the seed-<S> pool.
@@ -410,13 +412,152 @@ def to_markdown(r):
     return "\n".join(L) + "\n"
 
 
+# ====================================================================== HW03b: per-dimension Dirichlet energy
+ENERGY_TOPK = (16, 64, 512)
+
+
+def energy_selftest():
+    """E_raw (edge sum via incidence) vs f^T L f on small graphs with random columns (tol 1e-9)."""
+    rng = np.random.default_rng(0)
+    checks = []
+    graphs = {
+        "path5": _graph(5, [(0, 1), (1, 2), (2, 3), (3, 4)]),
+        "loops_dups": st.normalize_graph(np.array([[0, 1, 1, 2, 2, 3, 3], [1, 0, 2, 2, 3, 0, 0]]), 5),
+        "random30": st.normalize_graph(rng.integers(0, 30, size=(2, 80)), 30),
+    }
+    for name, a in graphs.items():
+        x = rng.integers(0, 4, size=(a.shape[0], 6)).astype(np.float64)
+        x[:, 0] = 0.0
+        got = st.dirichlet_energy_per_dim(a, x)
+        for m in range(x.shape[1]):
+            want = st.laplacian_quadratic(a, x[:, m])
+            checks.append({"check": f"{name} dim{m}", "got": float(got[m]), "want": want, "ok": bool(abs(got[m] - want) <= 1e-9)})
+    return all(c["ok"] for c in checks), checks
+
+
+def _quantiles(v):
+    v = np.asarray(v, dtype=np.float64)
+    q = np.quantile(v, [0, 0.25, 0.5, 0.75, 1.0])
+    return {"min": float(q[0]), "q25": float(q[1]), "median": float(q[2]), "q75": float(q[3]), "max": float(q[4]), "n": int(v.size)}
+
+
+def _topk_overlap(a, b, k):
+    ta = set(np.argsort(-a, kind="stable")[:k].tolist())
+    tb = set(np.argsort(-b, kind="stable")[:k].tolist())
+    return len(ta & tb) / k
+
+
+def energy_measure(dataset, seed):
+    """X exactly as hw/run.py reads it: load_data -> set_device -> add_diffusion -> data.features (seed 1212)."""
+    from scipy.stats import spearmanr
+
+    from data import load_data
+    from hw.config import build_args, load_config
+    from utils import seed_everything
+
+    args = build_args(load_config("naq_base"), dataset)
+    seed_everything(seed)
+    data = load_data(args)
+    data.add_diffusion(args)
+    x = data.features.detach().cpu().numpy().astype(np.float64)
+    n, dim = x.shape
+    a = st.normalize_graph(data.edge_index.detach().cpu().numpy(), n)
+    values = np.unique(x)
+    row_l2 = np.sqrt((x ** 2).sum(1))
+    feature_info = {
+        "shape": [int(n), int(dim)],
+        "dtype_in_training": str(data.features.dtype),
+        "distinct_values": int(values.size),
+        "binary": bool(np.isin(values, [0.0, 1.0]).all()),
+        "integer_valued": bool(np.all(values == np.round(values))),
+        "min": float(x.min()),
+        "max": float(x.max()),
+        "row_sum": _quantiles(x.sum(1)),
+        "row_l2_norm": _quantiles(row_l2),
+        "row_normalized_l1": bool(np.allclose(x.sum(1), 1.0)),
+        "row_normalized_l2": bool(np.allclose(row_l2, 1.0)),
+        "density": float((x != 0).mean()),
+    }
+    e_raw = st.dirichlet_energy_per_dim(a, x)
+    norm2 = (x ** 2).sum(0)
+    nnz = (x != 0).sum(0).astype(np.float64)
+    nonzero = norm2 > 0
+    e_rq = np.full(dim, np.nan)
+    e_rq[nonzero] = e_raw[nonzero] / norm2[nonzero]
+    er, rq, nz = e_raw[nonzero], e_rq[nonzero], nnz[nonzero]
+    sp_ = lambda p, q: float(spearmanr(p, q).correlation)  # noqa: E731
+    result = {
+        "dataset": dataset,
+        "seed": seed,
+        "graph": {"nodes": int(n), "undirected_edges": int(a.nnz // 2), "source": "hw.structure.normalize_graph(data.edge_index)"},
+        "features": feature_info,
+        "definitions": {
+            "E_raw": "1/2 sum_(i,j) A_ij (x_im - x_jm)^2 = sum over undirected edges (SPGCL eq. 13)",
+            "E_rq": "E_raw / ||x_:,m||^2 (dims with ||x_:,m|| = 0 excluded)",
+            "nnz": "number of nodes with x_im != 0",
+            "statistics_over": "dims with ||x_:,m|| > 0",
+        },
+        "dims_total": int(dim),
+        "dims_zero_norm": int((~nonzero).sum()),
+        "dims_used": int(nonzero.sum()),
+        "dims_E_raw_zero": int((e_raw[nonzero] == 0).sum()),
+        "summary": {"E_raw": _quantiles(er), "E_rq": _quantiles(rq), "nnz": _quantiles(nz)},
+        "spearman": {"E_raw_vs_nnz": sp_(er, nz), "E_raw_vs_E_rq": sp_(er, rq), "E_rq_vs_nnz": sp_(rq, nz)},
+        "topk_overlap": {
+            str(k): {"E_raw_vs_nnz": _topk_overlap(er, nz, k), "E_raw_vs_E_rq": _topk_overlap(er, rq, k)} for k in ENERGY_TOPK
+        },
+        "topk_tie_rule": "descending, stable argsort (ties broken by dimension index)",
+    }
+    return result
+
+
+def energy_markdown(r):
+    f = r["features"]
+    L = [f"# HW03b per-dimension Dirichlet energy — {r['dataset']}", "",
+         f"X: {f['shape'][0]} × {f['shape'][1]}, {f['dtype_in_training']}, binary {f['binary']}, integer {f['integer_valued']}, "
+         f"range {f['min']:g}–{f['max']:g}, distinct values {f['distinct_values']}, density {f['density']:.5f}, "
+         f"row L1-normalized {f['row_normalized_l1']}, row L2-normalized {f['row_normalized_l2']}",
+         f"row sum min/median/max {f['row_sum']['min']:g} / {f['row_sum']['median']:g} / {f['row_sum']['max']:g}",
+         f"graph: {r['graph']['nodes']} nodes, {r['graph']['undirected_edges']} undirected edges ({r['graph']['source']})",
+         f"dims: total {r['dims_total']}, zero norm {r['dims_zero_norm']} (excluded), used {r['dims_used']}, E_raw = 0 among used {r['dims_E_raw_zero']}", "",
+         "| 값 | min | q25 | median | q75 | max |", "|---|---|---|---|---|---|"]
+    for k, v in r["summary"].items():
+        L.append(f"| {k} | {v['min']:.6g} | {v['q25']:.6g} | {v['median']:.6g} | {v['q75']:.6g} | {v['max']:.6g} |")
+    L += ["", "| Spearman | ρ |", "|---|---|"] + [f"| {k} | {v:.4f} |" for k, v in r["spearman"].items()]
+    L += ["", "| K | top-K overlap E_raw ∩ nnz | top-K overlap E_raw ∩ E_rq |", "|---|---|---|"]
+    L += [f"| {k} | {v['E_raw_vs_nnz']:.4f} | {v['E_raw_vs_E_rq']:.4f} |" for k, v in r["topk_overlap"].items()]
+    return "\n".join(L) + "\n"
+
+
+def energy_main(cli):
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    if cli.selftest:
+        ok, checks = energy_selftest()
+        (OUT_DIR / "HW03b_energy_selftest.json").write_text(json.dumps({"pass": ok, "checks": checks}, indent=2), encoding="utf-8")
+        print(f"energy selftest {'PASS' if ok else 'FAIL'} ({sum(c['ok'] for c in checks)}/{len(checks)}), max |diff| "
+              f"{max(abs(c['got'] - c['want']) for c in checks):.3g}")
+        return 0 if ok else 1
+    if not cli.dataset:
+        raise SystemExit("--dataset required")
+    started = time.time()
+    r = energy_measure(cli.dataset, cli.seed)
+    r["elapsed_seconds"] = round(time.time() - started, 2)
+    (OUT_DIR / f"HW03b_energy_{cli.dataset}.json").write_text(json.dumps(r, indent=2), encoding="utf-8")
+    (OUT_DIR / f"HW03b_energy_{cli.dataset}.md").write_text(energy_markdown(r), encoding="utf-8")
+    print(energy_markdown(r))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="HW04m train-free positive-candidate purity")
     parser.add_argument("--dataset", choices=["Cora_full", "Amazon_clothing"])
     parser.add_argument("--seed", type=int, default=1212)
     parser.add_argument("--episodes", type=int, default=2000)
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--energy", action="store_true", help="HW03b per-dimension Dirichlet energy")
     cli = parser.parse_args()
+    if cli.energy:
+        sys.exit(energy_main(cli))
     if cli.selftest:
         ok, checks = selftest()
         for c in checks:
