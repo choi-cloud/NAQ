@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from hw.negatives import neighbor_term
 from hw.neighbors import select_neighbors_pick
 from hw.weights import apply_weights, hsan_weights
 
@@ -38,7 +39,12 @@ def episode_loss(
     pick="max",
     generator=None,
     selection_out=None,
+    nbr_term="infonce",
+    extra_neg=None,
+    xneg_out=None,
 ):
+    if hsan is not None and (nbr_term != "infonce" or extra_neg is not None):  # HW05
+        raise ValueError("nbr_term / extra_neg are not combined with hsan")
     if hsan is not None:
         return episode_loss_hsan(
             embeddings, id_spt, y_spt, id_query, y_query, temperature, selection_embeddings_normalized, neighbor_lookup, lambda_neighbor, max_neighbors, hsan, space_features,
@@ -64,6 +70,13 @@ def episode_loss(
     if not bool(positive_mask.any(dim=1).all()):
         raise ValueError("Every query needs a positive support")
     original_loss = _info_nce(direct_logits, positive_mask)
+    if extra_neg is not None:  # HW05: L_original with m extra negatives per query (no λ, no separate term)
+        extra_ids, fill = extra_neg.sample(support_ids, query_ids)  # [Q, m]
+        extra_logits = -(queries[:, None, :] - embeddings[extra_ids]).square().sum(-1) / temperature
+        extended_mask = torch.cat([positive_mask, torch.zeros_like(extra_logits, dtype=torch.bool)], dim=1)
+        original_loss = _info_nce(torch.cat([direct_logits, extra_logits], dim=1), extended_mask)
+        if xneg_out is not None:
+            xneg_out.update(extra=extra_ids, fill=fill)
 
     diagnostics = {"original_loss": float(original_loss.detach().item())}
     if loss_kind == "original":
@@ -76,6 +89,8 @@ def episode_loss(
         neighbor_dists = (queries[:, None, :] - neighbor_vectors).square().sum(-1)
         neighbor_logits = -neighbor_dists / temperature
         neighbor_loss = _info_nce(neighbor_logits, positive_mask)
+        if nbr_term != "infonce":  # HW05: pull-only / push-only split of the line above
+            neighbor_loss = neighbor_term(neighbor_logits, positive_mask, nbr_term)
         loss = original_loss + lambda_neighbor * neighbor_loss
         diagnostics.update(
             neighbor_loss=float(neighbor_loss.detach().item()),

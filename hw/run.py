@@ -29,6 +29,7 @@ from hw.config import DEFAULT_CONFIG, build_args, load_config
 from hw.episodes import build_eval_pools, build_train_pool
 from hw.evaluate import evaluate
 from hw.losses import episode_loss
+from hw.negatives import EXTRA_NEG_MODES, NBR_TERMS, ExtraNegatives
 from hw.valid500 import NUM_EXISTING, load_valid500
 from hw.neighbors import ALL_PICKS, SUP_COS, build_neighbor_lookup, build_sup_cos, load_selection_embeddings, sup_cos_space
 from hw.weights import DIAG_KEYS
@@ -38,7 +39,10 @@ FIRST_EPISODES_LOGGED = 5
 NBR_DIAG_KEYS = (
     "nbr_eq_support", "nbr_eq_query", "query_eq_support", "pos_nbr_cos_raw", "fallback_frac", "multi_nbr_frac",
     "nbr_in_own_queries", "nbr_in_any_queries", "nbr_is_query", "pos_nbr_cos_a2x",  # HW04a
+    "xneg_eq_query", "xneg_eq_support", "xneg_cos_raw", "xneg_fill_frac",  # HW05
 )
+GEOM_SAMPLE = 4096  # HW05 geom_diag: fixed node sample (dedicated CPU generator, seed GEOM_SEED)
+GEOM_SEED = 2026
 RANDOM_PICK_SEED_OFFSET = 7919
 GLOBAL_RANDOM_PICK_SEED_OFFSET = 104729  # HW03b
 VALID_TASKS = (50, 500)  # HW03b; 500 = save/valid500/<ds>.pkl, first 50 = the existing validation tasks
@@ -106,6 +110,60 @@ def neighbor_diagnostics(labels, raw_normalized, id_spt, y_spt, id_query, y_quer
     return out
 
 
+@torch.no_grad()
+def xneg_diagnostics(labels, raw_normalized, id_spt, y_spt, id_query, y_query, xneg_out):
+    """HW05 extra negatives of one episode. measurement-only label use: GT labels feed only metrics.json.
+    xneg_eq_query = share of (query, extra negative) pairs with the same GT class (false-negative rate);
+    xneg_eq_support = same, against the query's own (pseudo-class) support."""
+    device = labels.device
+    support_ids = torch.as_tensor(id_spt, dtype=torch.long, device=device).flatten()
+    query_ids = torch.as_tensor(id_query, dtype=torch.long, device=device).flatten()
+    support_pseudo = torch.as_tensor(y_spt, dtype=torch.long, device=device).flatten()
+    query_pseudo = torch.as_tensor(y_query, dtype=torch.long, device=device).flatten()
+    extra = xneg_out["extra"]  # [Q, m]
+    out = {"xneg_fill_frac": float(xneg_out["fill"])}
+    if extra.numel() == 0:
+        return out
+    own_support = support_ids[(query_pseudo[:, None] == support_pseudo[None, :]).float().argmax(dim=1)]  # [Q]
+    gt_extra = labels[extra]  # measurement-only label use
+    out["xneg_eq_query"] = float((gt_extra == labels[query_ids][:, None]).float().mean().item())  # measurement-only label use
+    out["xneg_eq_support"] = float((gt_extra == labels[own_support][:, None]).float().mean().item())  # measurement-only label use
+    out["xneg_cos_raw"] = float((raw_normalized[query_ids][:, None, :] * raw_normalized[extra]).sum(-1).mean().item())
+    return out
+
+
+@torch.no_grad()
+def geometry(embeddings):
+    """HW05 geom_diag on a fixed sample of GEOM_SAMPLE nodes (CPU generator seeded GEOM_SEED; same rule
+    for every dataset): norm mean/std, mean pairwise Euclidean distance (u != v), uniformity
+    log mean_{u != v} exp(-2 ||û - v̂||²) (Wang & Isola 2020), effective rank exp(H(σ/Σσ)) of the centered
+    sample, and the norm of the sample mean."""
+    n = embeddings.shape[0]
+    generator = torch.Generator()
+    generator.manual_seed(GEOM_SEED)
+    index = torch.randperm(n, generator=generator)[: min(GEOM_SAMPLE, n)].to(embeddings.device)
+    z = embeddings[index].double()
+    k = z.shape[0]
+    off = ~torch.eye(k, dtype=torch.bool, device=z.device)
+    norms = z.norm(dim=1)
+    dist = torch.cdist(z, z)
+    zn = z / norms.clamp_min(1e-12)[:, None]
+    sq = torch.cdist(zn, zn).square()
+    uniformity = torch.logsumexp(-2.0 * sq[off], dim=0) - math.log(off.sum().item())
+    sigma = torch.linalg.svdvals(z - z.mean(dim=0, keepdim=True))
+    prob = sigma / sigma.sum()
+    prob = prob[prob > 0]
+    return {
+        "sample": int(k),
+        "norm_mean": float(norms.mean()),
+        "norm_std": float(norms.std(unbiased=False)),
+        "pair_dist_mean": float(dist[off].mean()),
+        "uniformity": float(uniformity),
+        "eff_rank": float(torch.exp(-(prob * prob.log()).sum())),
+        "center_norm": float(z.mean(dim=0).norm()),
+    }
+
+
 def parse_cli():
     parser = argparse.ArgumentParser(description="HW track runner")
     parser.add_argument("--arm", required=True)
@@ -122,6 +180,8 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     if device_index is not None:
         cfg["device"] = device_index
     seed = int(cfg["seed"])
+    if "episodes" in cfg:  # HW05: per-arm number of training episodes (eval_every unchanged)
+        cfg["epochs"] = int(cfg["episodes"])
     args = build_args(cfg, dataset)
     if (args.n_way, args.k_shot, args.k_shot_test) != (5, 1, 5):
         raise ValueError("Only 5-way/1-shot train, 5-way/5-shot test supported")
@@ -145,6 +205,15 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     if valid_tasks not in VALID_TASKS:
         raise ValueError(f"valid_tasks must be one of {VALID_TASKS}")
     v500 = valid_tasks == 500
+    nbr_term = cfg.get("nbr_term", "infonce")  # HW05
+    if nbr_term not in NBR_TERMS:
+        raise ValueError(f"nbr_term must be one of {NBR_TERMS}")
+    if nbr_term != "infonce" and loss_kind != "original+neighbor":
+        raise ValueError("nbr_term pull/push needs loss 'original+neighbor'")
+    extra_neg_cfg = cfg.get("extra_neg") or {"mode": "none", "m": 0}
+    if extra_neg_cfg.get("mode", "none") not in EXTRA_NEG_MODES:
+        raise ValueError(f"extra_neg.mode must be one of {EXTRA_NEG_MODES}")
+    geom_diag = bool(cfg.get("geom_diag", False))
     hsan_diag_keys = [f"{term}_{key}" for term in ("orig", "nbr") for key in DIAG_KEYS]
 
     out_dir = RESULTS_ROOT / arm / dataset / f"seed{seed}"
@@ -219,6 +288,11 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                     nodes_with_two_hop2=float((sup_cos.top2[:, 1] >= 0).float().mean().item()),
                     hop2_size_median=float(sup_cos.hop2_size.float().median().item()),
                 )
+        extra_neg = None
+        if extra_neg_cfg.get("mode", "none") != "none":  # HW05 (selection-table slot): own generator / deterministic table, no global RNG
+            table_started = time.time()
+            extra_neg = ExtraNegatives(extra_neg_cfg["mode"], extra_neg_cfg["m"], num_nodes, device, seed, features=features, adj=data.adj)
+            result["extra_neg"] = {"mode": extra_neg_cfg["mode"], "m": int(extra_neg_cfg["m"]), "setup_seconds": round(time.time() - table_started, 2)}
         a2x_normalized = None
         if loss_kind != "original":  # diagnostics only (pos_nbr_cos_a2x); no RNG
             a2x_normalized = sup_cos.embeddings if (sup_cos is not None and pick_space == "a2x") else sup_cos_space("a2x", features, data.adj)
@@ -248,6 +322,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             model.train()
             embeddings = model.network(features, adj=data.adj)
             selection_out = {} if loss_kind != "original" else None
+            xneg_out = {} if extra_neg is not None else None
             loss, accuracy, diagnostics = episode_loss(
                 embeddings,
                 id_spt,
@@ -265,7 +340,13 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 pick=pick,
                 generator=generator,
                 selection_out=selection_out,
+                nbr_term=nbr_term,
+                extra_neg=extra_neg,
+                xneg_out=xneg_out,
             )
+            if extra_neg is not None:
+                for key, value in xneg_diagnostics(data.labels, raw_normalized, id_spt, y_spt, id_query, y_query, xneg_out).items():
+                    nbr_buffers[key].append(value)
             for key, value in neighbor_diagnostics(data.labels, raw_normalized, id_spt, y_spt, id_query, y_query, selection_out, a2x_normalized).items():
                 nbr_buffers[key].append(value)
             loss_value = float(loss.detach().item())
@@ -348,6 +429,8 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             clean = model.network(features, adj=data.adj)
             testing = evaluate(clean, test_pool, args.n_way, device)
         result["best"]["test"] = testing
+        if geom_diag:  # HW05: geometry of the 500-based (main) best checkpoint
+            result["geom"] = geometry(clean)
         if v500:  # HW03b: test once per checkpoint; same epoch -> value copied
             same_epoch = result["best_50"]["epoch"] == result["best"]["epoch"]
             if same_epoch:
