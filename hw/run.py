@@ -29,6 +29,7 @@ from hw.config import DEFAULT_CONFIG, build_args, load_config
 from hw.episodes import build_eval_pools, build_train_pool
 from hw.evaluate import evaluate
 from hw.losses import episode_loss
+from hw.valid500 import NUM_EXISTING, load_valid500
 from hw.neighbors import ALL_PICKS, SUP_COS, build_neighbor_lookup, build_sup_cos, load_selection_embeddings, sup_cos_space
 from hw.weights import DIAG_KEYS
 
@@ -39,6 +40,8 @@ NBR_DIAG_KEYS = (
     "nbr_in_own_queries", "nbr_in_any_queries", "nbr_is_query", "pos_nbr_cos_a2x",  # HW04a
 )
 RANDOM_PICK_SEED_OFFSET = 7919
+GLOBAL_RANDOM_PICK_SEED_OFFSET = 104729  # HW03b
+VALID_TASKS = (50, 500)  # HW03b; 500 = save/valid500/<ds>.pkl, first 50 = the existing validation tasks
 
 
 def save_json(path, value):
@@ -138,6 +141,10 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     pick_space = cfg.get("pick_space") if pick == SUP_COS else None
     if pick == SUP_COS and max_neighbors != 0:
         raise ValueError("pick sup_cos requires max_neighbors == 0")
+    valid_tasks = int(cfg.get("valid_tasks", 50))
+    if valid_tasks not in VALID_TASKS:
+        raise ValueError(f"valid_tasks must be one of {VALID_TASKS}")
+    v500 = valid_tasks == 500
     hsan_diag_keys = [f"{term}_{key}" for term in ("orig", "nbr") for key in DIAG_KEYS]
 
     out_dir = RESULTS_ROOT / arm / dataset / f"seed{seed}"
@@ -198,6 +205,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         if pick == "random":  # dedicated generator: the global RNG stream is not consumed
             generator = torch.Generator(device=device)
             generator.manual_seed(seed + RANDOM_PICK_SEED_OFFSET)
+        if pick == "global_random":  # HW03b: dedicated generator, the global RNG stream is not consumed
+            generator = torch.Generator(device=device)
+            generator.manual_seed(seed + GLOBAL_RANDOM_PICK_SEED_OFFSET)
         sup_cos = None
         if pick == SUP_COS:  # selection table (HW04a): deterministic, no RNG
             table_started = time.time()
@@ -223,6 +233,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             neighbor_lookup = sup_cos
         train_pool = build_train_pool(args, data)
         valid_pool, test_pool = build_eval_pools(args, data)
+        if v500:  # HW03b: cached file only, no RNG; tasks 0..49 = the validation pool above
+            valid_pool = load_valid500(dataset)
+            best_validation_50, best_state_50 = -float("inf"), None
         print(f"[hw.run:{arm}] {dataset} seed={seed} train={len(train_pool)} valid={len(valid_pool)} test={len(test_pool)}", flush=True)
 
         best_validation = -float("inf")
@@ -289,6 +302,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             with torch.no_grad():
                 clean = model.network(features, adj=data.adj)
                 validation = evaluate(clean, valid_pool, args.n_way, device)
+                validation_50 = evaluate(clean, valid_pool[:NUM_EXISTING], args.n_way, device) if v500 else None
             record = {
                 "epoch": epoch,
                 "train_loss_mean": float(np.mean(losses)),
@@ -307,6 +321,8 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             record["nbr_diag"] = {key: (float(np.mean(values)) if values else None) for key, values in nbr_buffers.items()}
             for values in nbr_buffers.values():
                 values.clear()
+            if v500:
+                record.update(val_acc_500=validation["accuracy_mean"], val_acc_50=validation_50["accuracy_mean"], validation_50=validation_50)
             result["epochs"].append(record)
             print(
                 f"[Epoch {epoch:5d}] loss={record['train_loss_mean']:.4f} "
@@ -320,6 +336,10 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 best_validation = validation["accuracy_mean"]
                 best_state = deepcopy(model.network.state_dict())
                 result["best"] = {"epoch": epoch, "validation": validation}
+            if v500 and validation_50["accuracy_mean"] > best_validation_50:  # HW03b: second checkpoint (measurement)
+                best_validation_50 = validation_50["accuracy_mean"]
+                best_state_50 = {key: value.detach().cpu().clone() for key, value in model.network.state_dict().items()}
+                result["best_50"] = {"epoch": epoch, "validation": validation_50}
             save_json(json_path, result)
 
         model.network.load_state_dict(best_state)
@@ -328,6 +348,25 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             clean = model.network(features, adj=data.adj)
             testing = evaluate(clean, test_pool, args.n_way, device)
         result["best"]["test"] = testing
+        if v500:  # HW03b: test once per checkpoint; same epoch -> value copied
+            same_epoch = result["best_50"]["epoch"] == result["best"]["epoch"]
+            if same_epoch:
+                testing_50 = testing
+            else:
+                model.network.load_state_dict(best_state_50)
+                model.eval()
+                with torch.no_grad():
+                    clean = model.network(features, adj=data.adj)
+                    testing_50 = evaluate(clean, test_pool, args.n_way, device)
+            result["best_50"]["test"] = testing_50
+            result.update(
+                valid_tasks=valid_tasks,
+                test_acc=testing["accuracy_mean"],
+                test_acc_at_best50=testing_50["accuracy_mean"],
+                best_epoch_500=result["best"]["epoch"],
+                best_epoch_50=result["best_50"]["epoch"],
+                same_epoch=bool(same_epoch),
+            )
         result["status"] = "completed"
         result["elapsed_seconds"] = round(time.time() - started, 2)
         save_json(json_path, result)

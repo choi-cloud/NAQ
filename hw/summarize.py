@@ -4,6 +4,10 @@
 
 --ref <arm> also writes results/hw/paired_<arm>.md: per arm and dataset, the
 same-seed paired Δ = arm − ref (mean, std ddof=0, positive seeds k/n).
+--metric <key> (HW03b, default test_acc): test_acc = best["test"] (the 500-based checkpoint for
+valid_tasks 500 runs, the only checkpoint otherwise); any other key is read from metrics.json
+top level (e.g. test_acc_at_best50) and runs without it are skipped. Non-default keys add the
+suffix _<key> to every output file (summary_<key>.{csv,md}, paired_<ref>_<key>.md).
 Accuracies are reported in % (x100). Only status == "completed" runs are aggregated;
 other runs are listed in summary.md under "not completed".
 """
@@ -56,7 +60,7 @@ def paired(rows, ref):
     return out
 
 
-def write_paired(rows, ref):
+def write_paired(rows, ref, suffix=""):
     table = paired(rows, ref)
     datasets = sorted({r["ds"] for r in rows})
     entries = []
@@ -92,7 +96,7 @@ def write_paired(rows, ref):
                 continue
             values = dict(zip(per_ds[ds][1], per_ds[ds][0]))
             lines.append(f"| {arm} | {ds} | " + " | ".join(f"{values[s]:+.2f}" if s in values else "—" for s in _all_seeds(rows)) + " |")
-    path = RESULTS_ROOT / f"paired_{ref}.md"
+    path = RESULTS_ROOT / f"paired_{ref}{suffix}.md"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
 
@@ -101,7 +105,7 @@ def _all_seeds(rows):
     return sorted({r["seed"] for r in rows})
 
 
-def collect():
+def collect(metric="test_acc"):
     rows, incomplete = [], []
     for path in sorted(RESULTS_ROOT.glob("*/*/seed*/metrics.json")):
         if path.parts[len(RESULTS_ROOT.parts)] in SKIP_DIRS:
@@ -112,6 +116,12 @@ def collect():
             incomplete.append((str(path), result.get("status"), result.get("error")))
             continue
         best = result["best"]
+        if metric == "test_acc":
+            test_value = best["test"]["accuracy_mean"]
+        elif result.get(metric) is not None:
+            test_value = result[metric]
+        else:
+            continue
         rows.append(
             {
                 "arm": result["arm"],
@@ -119,7 +129,7 @@ def collect():
                 "seed": result["seed"],
                 "best_epoch": best["epoch"],
                 "val": round(100 * best["validation"]["accuracy_mean"], 4),
-                "test": round(100 * best["test"]["accuracy_mean"], 4),
+                "test": round(100 * test_value, 4),
                 "ci95": round(100 * best["test"]["accuracy_ci95_half_width"], 4),
                 "elapsed": result["elapsed_seconds"],
                 "orig_pos_weight_mean": _final_diag(result, "orig_pos_weight_mean"),
@@ -138,9 +148,11 @@ def collect():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ref", action="append", default=[], help="reference arm for paired Δ (repeatable)")
+    parser.add_argument("--metric", default="test_acc", help="test_acc (default) or a metrics.json top-level key, e.g. test_acc_at_best50")
     cli = parser.parse_args()
-    rows, incomplete = collect()
-    with open(RESULTS_ROOT / "summary.csv", "w", newline="", encoding="utf-8") as file:
+    suffix = "" if cli.metric == "test_acc" else f"_{cli.metric}"
+    rows, incomplete = collect(cli.metric)
+    with open(RESULTS_ROOT / f"summary{suffix}.csv", "w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(rows)
@@ -153,7 +165,7 @@ def main():
     lines = [
         "# HW summary",
         "",
-        "test accuracy (%), seed mean ± std (ddof=0); n = number of seeds. 5-way 5-shot, 500 test tasks.",
+        f"test accuracy (%) [{cli.metric}], seed mean ± std (ddof=0); n = number of seeds. 5-way 5-shot, 500 test tasks.",
         f"[c=k]: k runs collapsed (best-epoch validation ≤ {COLLAPSE_VAL_MAX:.0f}%), included in the mean.",
         "",
         "| arm | " + " | ".join(datasets) + " |",
@@ -177,10 +189,10 @@ def main():
     if incomplete:
         lines += ["", "## not completed", ""]
         lines += [f"- `{path}`: {status} {error or ''}" for path, status, error in incomplete]
-    (RESULTS_ROOT / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (RESULTS_ROOT / f"summary{suffix}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     for ref in cli.ref:
-        write_paired(rows, ref)
+        write_paired(rows, ref, suffix)
 
 
 if __name__ == "__main__":

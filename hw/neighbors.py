@@ -94,6 +94,8 @@ def select_neighbors_pick(selection_embeddings_normalized, support_ids, query_id
     """
     if pick == SUP_COS:  # HW04a: separate path; the max/contrast/random lines below are unchanged
         return select_neighbors_sup_cos(neighbor_lookup, support_ids, query_ids, selection_out)
+    if pick in CONTROL_PICKS:  # HW03b: separate path; the lines below are unchanged
+        return select_neighbors_control(pick, selection_embeddings_normalized.shape[0], support_ids, query_ids, generator, selection_out)
     if pick not in PICKS:
         raise ValueError(f"pick must be one of {PICKS}, got {pick!r}")
     if pick == "max" and selection_out is None:
@@ -251,6 +253,48 @@ def select_neighbors_sup_cos(candidates, support_ids, query_ids, selection_out=N
         valid_count = use1.long() + use2.long()
         sizes = candidates.hop2_size[support_ids].tolist()
     selected = torch.where(has_neighbor, selected, support_ids[None, :].expand_as(selected))
+    if selection_out is not None:
+        selection_out.update(selected=selected, has_neighbor=has_neighbor, valid_count=valid_count)
+    return selected, has_neighbor, sizes
+
+
+# ---------------------------------------------------------------- HW03b: control picks
+CONTROL_PICKS = ("self", "global_random")
+ALL_PICKS = ALL_PICKS + CONTROL_PICKS
+
+
+@torch.no_grad()
+def select_neighbors_control(pick, num_nodes, support_ids, query_ids, generator=None, selection_out=None):
+    """pick "self": positive = the support itself for every (query, support) pair.
+    pick "global_random": per pair one node drawn uniformly from all nodes except that support and
+    that query, from `generator` only (no global RNG). Draw: r ~ U{0..N-1-m} (m = number of distinct
+    excluded ids), then r is shifted past the excluded ids in ascending order.
+    Returns (selected [Q, S], has_neighbor [Q, S] (all True), sizes list) like `select_neighbors`.
+    """
+    q_count, s_count = query_ids.numel(), support_ids.numel()
+    device = support_ids.device
+    sup = support_ids[None, :].expand(q_count, -1)
+    if pick == "self":
+        selected = sup.clone()
+        sizes = [1] * s_count
+        valid_count = torch.ones((q_count, s_count), dtype=torch.long, device=device)
+    elif pick == "global_random":
+        if generator is None:
+            raise ValueError("pick 'global_random' needs a dedicated torch.Generator")
+        qry = query_ids[:, None].expand(-1, s_count)
+        lo, hi = torch.minimum(sup, qry), torch.maximum(sup, qry)
+        distinct = lo != hi
+        span = num_nodes - 1 - distinct.long()  # number of allowed nodes
+        u = torch.rand((q_count, s_count), generator=generator, device=device)
+        r = torch.minimum((u * span).long(), span - 1)
+        r = r + (r >= lo).long()
+        r = r + (distinct & (r >= hi)).long()
+        selected = r
+        sizes = [num_nodes - 2] * s_count
+        valid_count = span
+    else:
+        raise ValueError(f"control pick must be one of {CONTROL_PICKS}, got {pick!r}")
+    has_neighbor = torch.ones((q_count, s_count), dtype=torch.bool, device=device)
     if selection_out is not None:
         selection_out.update(selected=selected, has_neighbor=has_neighbor, valid_count=valid_count)
     return selected, has_neighbor, sizes
