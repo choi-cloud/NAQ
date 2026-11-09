@@ -716,7 +716,7 @@ def exclusion_measure(dataset, seed=1212, episodes=2000):
     from hw.negatives import FAR_STRONG_TABLE_K, FAR_TOP, adjacency_torch, kmeans_labels, raw_cos_table, within_two_hops
     from hw.purity import build_pool
 
-    pool = build_pool(dataset, seed, episodes, arm="naq_base")
+    pool = build_pool(dataset, seed, episodes)  # default arm (nbr_bgrl), as HW04m / HW05; the train pool does not depend on the loss keys
     data, device = pool["data"], pool["device"]
     features = data.features.detach().float().cpu()
     adj_cpu = data.adj.detach().cpu()
