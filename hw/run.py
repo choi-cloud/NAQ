@@ -31,6 +31,7 @@ from hw.evaluate import evaluate
 from hw.losses import episode_loss
 from hw.negatives import EXTRA_NEG_MODES, NBR_TERMS, ExtraNegatives
 from hw.negatives import STRATEGY_MODES, StrategyNegatives  # HW06
+from hw.negatives import HW07_KEYS, ReferenceSets, StrategyNegativesHW07  # HW07
 from hw.valid500 import NUM_EXISTING, load_valid500
 from hw.neighbors import ALL_PICKS, SUP_COS, build_neighbor_lookup, build_sup_cos, load_selection_embeddings, sup_cos_space
 from hw.weights import DIAG_KEYS
@@ -48,6 +49,7 @@ RANDOM_PICK_SEED_OFFSET = 7919
 GLOBAL_RANDOM_PICK_SEED_OFFSET = 104729  # HW03b
 VALID_TASKS = (50, 500)  # HW03b; 500 = save/valid500/<ds>.pkl, first 50 = the existing validation tasks
 NBR_DIAG_KEYS = NBR_DIAG_KEYS + ("band_cos_lo", "band_cos_hi", "qneg_eq_query", "qneg_cos_raw", "qpos_eq_query")  # HW06
+NBR_DIAG_KEYS = NBR_DIAG_KEYS + ("xneg_in_qcluster", "xneg_in_farset", "anc_same_cluster", "excl_cluster_size")  # HW07
 
 
 def save_json(path, value):
@@ -345,6 +347,14 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
             if extra_neg_cfg["mode"] in STRATEGY_MODES:  # HW06: far / band / cluster replace the placeholder above
                 extra_neg = StrategyNegatives(extra_neg_cfg, num_nodes, device, seed, dataset, features, data.adj, data.edge_index)
                 result["extra_neg"].update(extra_neg.info, setup_seconds=round(time.time() - table_started, 2))
+            if any(key in extra_neg_cfg for key in HW07_KEYS):  # HW07: cluster_ref / kmeans_seed / far_top
+                if extra_neg_cfg["mode"] not in ("far", "cluster"):
+                    raise ValueError(f"{HW07_KEYS} apply to extra_neg mode far / cluster only")
+                extra_neg = StrategyNegativesHW07(extra_neg_cfg, num_nodes, device, seed, dataset, features, data.adj, data.edge_index)
+                result["extra_neg"].update(extra_neg.info, setup_seconds=round(time.time() - table_started, 2))
+        xneg_ref = None  # HW07 diagnostics xneg_in_qcluster / xneg_in_farset (cached tables, no RNG, no labels)
+        if extra_neg is not None:
+            xneg_ref = ReferenceSets(dataset, features, data.adj, data.edge_index, num_nodes, device)
         a2x_normalized = None
         if loss_kind != "original":  # diagnostics only (pos_nbr_cos_a2x); no RNG
             a2x_normalized = sup_cos.embeddings if (sup_cos is not None and pick_space == "a2x") else sup_cos_space("a2x", features, data.adj)
@@ -407,6 +417,11 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 nbr_buffers[key].append(value)
             if extra_neg is not None and extra_neg_cfg["mode"] == "band":  # HW06
                 for key, value in band_diagnostics(raw_normalized, id_query, xneg_out).items():
+                    nbr_buffers[key].append(value)
+            if xneg_ref is not None:  # HW07
+                for key, value in xneg_ref.diagnostics(torch.as_tensor(id_query, dtype=torch.long, device=device).flatten(), xneg_out["extra"]).items():
+                    nbr_buffers[key].append(value)
+                for key, value in getattr(extra_neg, "last", {}).items():
                     nbr_buffers[key].append(value)
             if ep_query_neg:  # HW06
                 for key, value in qep_diagnostics(data.labels, raw_normalized, id_query, qep_out).items():

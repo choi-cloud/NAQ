@@ -5,6 +5,7 @@
     python -m hw.measure_positive --energy --dataset <ds>      (HW03b: per-dimension Dirichlet energy)
     python -m hw.measure_positive --energy --selftest          (HW03b: E_raw = f^T L f check)
     python -m hw.measure_positive --overlap --dataset <ds>     (HW05: idea-A neighborhood overlap)
+    python -m hw.measure_positive --exclusion --dataset <ds>   (HW07: cluster / far exclusion sets)
 
 No training. Graph / features / labels come from hw.purity.build_pool (the hw/run.py path:
 seed -> load_data -> ... -> train_pool), so the episode-conditioned rows use the seed-<S> pool.
@@ -697,6 +698,140 @@ def overlap_main(cli):
     return 0
 
 
+# ---------------------------------------------------------------- HW07: exclusion sets of cluster / far
+EXCLUSION_MS = (20, 100, 200)
+EXCLUSION_EPISODE_EXCLUDED = 56  # 5 supports + 50 pseudo-queries + q (as N − 56 in the instruction)
+
+
+def _dist3(v):
+    v = np.asarray(v, dtype=np.float64)
+    return {"mean": float(v.mean()), "median": float(np.median(v)), "q90": float(np.quantile(v, 0.9))}
+
+
+@torch.no_grad()
+def exclusion_measure(dataset, seed=1212, episodes=2000):
+    """HW07-c. measurement-only label use: every GT label read here feeds only these measurements.
+    C(q) = q's cluster (k100, kmeans seed 20261108) without q; F(q) = shortest-path ≤ 2 ∪ raw-cos top-100,
+    F_S(q) = shortest-path ≤ 2 ∪ raw-cos top-1000 (both without q). Node values are node macro (mean over nodes)."""
+    from hw.negatives import FAR_STRONG_TABLE_K, FAR_TOP, adjacency_torch, kmeans_labels, raw_cos_table, within_two_hops
+    from hw.purity import build_pool
+
+    pool = build_pool(dataset, seed, episodes, arm="naq_base")
+    data, device = pool["data"], pool["device"]
+    features = data.features.detach().float().cpu()
+    adj_cpu = data.adj.detach().cpu()
+    labels = torch.as_tensor(np.asarray(pool["labels"].cpu() if torch.is_tensor(pool["labels"]) else pool["labels"])).long().to(device)
+    n = features.shape[0]
+    clus = kmeans_labels(dataset, features, adj_cpu).to(device)
+    t1000 = raw_cos_table(dataset, features, k=FAR_STRONG_TABLE_K)["ids"].to(device)
+    a = adjacency_torch(data.edge_index, n, device)
+    sizes = torch.bincount(clus)
+    acc = {key: torch.zeros(n, dtype=torch.float64, device=device) for key in ("c", "c_same", "f", "f_same", "fs", "fs_same", "fc", "class_other")}
+    chunk = 1024
+    for start in range(0, n, chunk):
+        rows = torch.arange(start, min(n, start + chunk), device=device)
+        r = rows.numel()
+        selfm = torch.zeros((r, n), dtype=torch.bool, device=device)
+        selfm[torch.arange(r, device=device), rows] = True
+        hop = within_two_hops(a, rows)
+        f = hop.clone()
+        f.scatter_(1, t1000[rows, :FAR_TOP], True)
+        fs = hop.clone()
+        fs.scatter_(1, t1000[rows], True)
+        f &= ~selfm
+        fs &= ~selfm
+        c = (clus[None, :] == clus[rows][:, None]) & ~selfm
+        same = (labels[None, :] == labels[rows][:, None]) & ~selfm  # measurement-only label use
+        for key, m in (("c", c), ("f", f), ("fs", fs)):
+            acc[key][rows] = m.sum(dim=1).double()
+            acc[key + "_same"][rows] = (m & same).sum(dim=1).double()
+        acc["fc"][rows] = (f & c).sum(dim=1).double()
+        acc["class_other"][rows] = same.sum(dim=1).double()
+    v = {key: t.cpu().numpy() for key, t in acc.items()}
+    ratio = lambda num, den: np.where(den > 0, num / np.maximum(den, 1), np.nan)  # noqa: E731
+    denom = n - EXCLUSION_EPISODE_EXCLUDED
+    node = {}
+    for key, name in (("c", "C(q)"), ("f", "F(q)"), ("fs", "F_S(q)")):
+        node[name] = {
+            "size": _dist3(v[key]),
+            "same_class_ratio_node_macro": float(np.nanmean(ratio(v[key + "_same"], v[key]))),
+            "nodes_with_empty_set": int((v[key] == 0).sum()),
+            "expected_random_hits": {str(m): float((m * v[key] / denom).mean()) for m in EXCLUSION_MS},
+            "expected_random_same_class_hits": {str(m): float((m * v[key + "_same"] / denom).mean()) for m in EXCLUSION_MS},
+        }
+    node["overlap"] = {
+        "F_cap_C_over_C_node_macro": float(np.nanmean(ratio(v["fc"], v["c"]))),
+        "F_cap_C_over_F_node_macro": float(np.nanmean(ratio(v["fc"], v["f"]))),
+    }
+    node["random_expected_same_class_hits_all"] = {str(m): float((m * v["class_other"] / denom).mean()) for m in EXCLUSION_MS}
+
+    # (b) episode level: (q, s⁺) pairs of the seed-<seed> training pool
+    same_cluster, diff_size, diff_same, other_support_in_cq = [], [], [], []
+    for id_spt, y_spt, id_query, y_query in pool["train_pool"]:
+        sid = torch.as_tensor(id_spt, dtype=torch.long, device=device).flatten()
+        qid = torch.as_tensor(id_query, dtype=torch.long, device=device).flatten()
+        ys = torch.as_tensor(y_spt, dtype=torch.long, device=device).flatten()
+        yq = torch.as_tensor(y_query, dtype=torch.long, device=device).flatten()
+        match = yq[:, None] == ys[None, :]
+        s_pos = sid[match.float().argmax(dim=1)]
+        cq, cs = clus[qid], clus[s_pos]
+        same_cluster.append((cq == cs).cpu())
+        in_cs_not_cq = (clus[None, :] == cs[:, None]) & (clus[None, :] != cq[:, None])  # [Q, N]
+        diff_size.append(in_cs_not_cq.sum(dim=1).cpu())
+        diff_same.append((in_cs_not_cq & (labels[None, :] == labels[qid][:, None])).sum(dim=1).cpu())  # measurement-only label use
+        other = ~match
+        other_support_in_cq.append(((clus[sid][None, :] == cq[:, None]) & other).any(dim=1).cpu())
+    same_cluster = torch.cat(same_cluster).numpy()
+    diff_size = torch.cat(diff_size).double().numpy()
+    diff_same = torch.cat(diff_same).double().numpy()
+    nonempty = diff_size > 0
+    episode = {
+        "pairs": int(same_cluster.size),
+        "episodes": len(pool["train_pool"]),
+        "C_spos_eq_C_q_frac": float(same_cluster.mean()),
+        "C_spos_minus_C_q_size_mean_all_pairs": float(diff_size.mean()),
+        "C_spos_minus_C_q_size_mean_nonempty": float(diff_size[nonempty].mean()) if nonempty.any() else None,
+        "C_spos_minus_C_q_same_class_ratio_nonempty_mean": float((diff_same[nonempty] / diff_size[nonempty]).mean()) if nonempty.any() else None,
+        "C_q_contains_other_pseudo_class_support_frac": float(torch.cat(other_support_in_cq).float().mean()),
+    }
+    return {"dataset": dataset, "num_nodes": n, "seed": seed, "random_denominator": denom, "node": node, "episode": episode}
+
+
+def exclusion_markdown(r):
+    lines = [f"# HW07 exclusion sets — {r['dataset']} (N {r['num_nodes']}, seed {r['seed']} pool)", "",
+             "Node values: mean over all nodes (node macro). Sets exclude q. Expected hits = m · |S(q)| / (N − 56).", "",
+             "| set | size mean / median / q90 | same-class ratio | m20 hits | m100 hits | m200 hits | m20 same | m100 same | m200 same |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for name in ("C(q)", "F(q)", "F_S(q)"):
+        x = r["node"][name]
+        h, s = x["expected_random_hits"], x["expected_random_same_class_hits"]
+        lines.append(f"| {name} | {x['size']['mean']:.1f} / {x['size']['median']:.0f} / {x['size']['q90']:.0f} | {x['same_class_ratio_node_macro']:.4f} | "
+                     f"{h['20']:.3f} | {h['100']:.3f} | {h['200']:.3f} | {s['20']:.4f} | {s['100']:.4f} | {s['200']:.4f} |")
+    o = r["node"]["overlap"]
+    a = r["node"]["random_expected_same_class_hits_all"]
+    lines += ["", f"- |F ∩ C| / |C| {o['F_cap_C_over_C_node_macro']:.4f}, |F ∩ C| / |F| {o['F_cap_C_over_F_node_macro']:.4f}",
+              f"- random: expected same-class hits over all nodes m20 {a['20']:.4f}, m100 {a['100']:.4f}, m200 {a['200']:.4f}", ""]
+    e = r["episode"]
+    lines += [f"Episode level ({e['episodes']} episodes, {e['pairs']} (q, s⁺) pairs):",
+              f"- C(s⁺) = C(q): {e['C_spos_eq_C_q_frac']:.4f}",
+              f"- |C(s⁺) \\ C(q)| mean (all pairs) {e['C_spos_minus_C_q_size_mean_all_pairs']:.1f}, (non-empty) {e['C_spos_minus_C_q_size_mean_nonempty']:.1f}; same-class ratio (non-empty) {e['C_spos_minus_C_q_same_class_ratio_nonempty_mean']:.4f}",
+              f"- C(q) contains another pseudo-class support of the episode: {e['C_q_contains_other_pseudo_class_support_frac']:.4f}"]
+    return "\n".join(lines) + "\n"
+
+
+def exclusion_main(cli):
+    if not cli.dataset:
+        raise SystemExit("--dataset required")
+    started = time.time()
+    r = exclusion_measure(cli.dataset, cli.seed, cli.episodes)
+    r["elapsed_seconds"] = round(time.time() - started, 2)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUT_DIR / f"HW07_exclusion_{cli.dataset}.json").write_text(json.dumps(r, indent=2), encoding="utf-8")
+    (OUT_DIR / f"HW07_exclusion_{cli.dataset}.md").write_text(exclusion_markdown(r), encoding="utf-8")
+    print(exclusion_markdown(r))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="HW04m train-free positive-candidate purity")
     parser.add_argument("--dataset", choices=["Cora_full", "Amazon_clothing"])
@@ -705,7 +840,10 @@ def main():
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--energy", action="store_true", help="HW03b per-dimension Dirichlet energy")
     parser.add_argument("--overlap", action="store_true", help="HW05 idea-A neighborhood overlap")
+    parser.add_argument("--exclusion", action="store_true", help="HW07 exclusion sets of cluster / far")
     cli = parser.parse_args()
+    if cli.exclusion:
+        sys.exit(exclusion_main(cli))
     if cli.overlap:
         sys.exit(overlap_main(cli))
     if cli.energy:

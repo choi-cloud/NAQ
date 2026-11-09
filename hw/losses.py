@@ -78,6 +78,8 @@ def episode_loss(
         raise ValueError("Every query needs a positive support")
     original_loss = _info_nce(direct_logits, positive_mask)
     if extra_neg is not None:  # HW05: L_original with m extra negatives per query (no λ, no separate term)
+        if getattr(extra_neg, "needs_episode_labels", False):  # HW07 cluster_ref anchor: pseudo labels only
+            extra_neg.set_episode(support_labels, query_labels)
         extra_ids, fill = extra_neg.sample(support_ids, query_ids)  # [Q, m]
         extra_logits = -(queries[:, None, :] - embeddings[extra_ids]).square().sum(-1) / temperature
         extended_mask = torch.cat([positive_mask, torch.zeros_like(extra_logits, dtype=torch.bool)], dim=1)

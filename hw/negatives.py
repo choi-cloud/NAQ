@@ -252,3 +252,122 @@ class StrategyNegatives:
         else:  # cluster
             banned |= self.cluster[None, :] == self.cluster[query_ids][:, None]
         return self._uniform(banned), 0.0
+
+
+# ---------------------------------------------------------------- HW07: cluster_ref / kmeans_seed / far_top
+"""HW07 keys of extra_neg far / cluster (CLAUDE.md rev 9 §4.2). Used only when the extra_neg block names one of
+HW07_KEYS; without them hw/run.py keeps the HW06 `StrategyNegatives` object unchanged.
+- cluster_ref: query (default, = HW06) | anchor (exclude C(s⁺), s⁺ = the query's own pseudo-class support) |
+  shuffled (per query draw u uniformly from the nodes outside C(q) with a dedicated generator seed + 61403, exclude C(u)).
+- kmeans_seed: default 20261108 (= cache/kmeans/<ds>_k<k>.pt); otherwise cache/kmeans/<ds>_k<k>_s<seed>.pt.
+- far_top: default 100 (= HW06); raw-cos top-far_top excluded (>500 uses cache/rawcos/<ds>_top1000.pt).
+The main generator (seed + 52361 / 31337) is consumed exactly as in HW06 (one _uniform call per episode).
+`last` holds the per-episode diagnostics anc_same_cluster / excl_cluster_size (cluster mode).
+"""
+
+HW07_KEYS = ("cluster_ref", "kmeans_seed", "far_top")
+CLUSTER_REFS = ("query", "anchor", "shuffled")
+SHUFFLED_SEED_OFFSET = 61403
+FAR_STRONG_TABLE_K = 1000
+
+
+@torch.no_grad()
+def kmeans_labels_seed(dataset, features, adj, k=KMEANS_DEFAULT_K, kmeans_seed=KMEANS_SEED):
+    """kmeans_labels with a chosen random_state; the default seed returns the HW06 cache unchanged."""
+    if int(kmeans_seed) == KMEANS_SEED:
+        return kmeans_labels(dataset, features, adj, k)
+    path = CACHE_ROOT / "kmeans" / f"{dataset}_k{int(k)}_s{int(kmeans_seed)}.pt"
+    if path.exists():
+        return torch.load(path)
+    from sklearn.cluster import KMeans
+
+    x = features.detach().float().cpu()
+    a2x = structure.l2_rows(structure.a2x_trainfree(adj.detach().cpu().coalesce().float(), x)).numpy()
+    labels = KMeans(n_clusters=int(k), n_init=KMEANS_N_INIT, random_state=int(kmeans_seed)).fit_predict(a2x)
+    out = torch.as_tensor(labels, dtype=torch.long)
+    _atomic_save(out, path)
+    return out
+
+
+def own_support(support_ids, support_labels, query_labels):
+    """[Q] id of each query's positive (same pseudo-class) support (pseudo labels only)."""
+    return support_ids[(query_labels[:, None] == support_labels[None, :]).float().argmax(dim=1)]
+
+
+class StrategyNegativesHW07(StrategyNegatives):
+    needs_episode_labels = True
+
+    def __init__(self, cfg, num_nodes, device, seed, dataset, features, adj, edge_index):
+        super().__init__(cfg, num_nodes, device, seed, dataset, features, adj, edge_index)
+        self.cluster_ref = cfg.get("cluster_ref", "query")
+        if self.cluster_ref not in CLUSTER_REFS:
+            raise ValueError(f"cluster_ref must be one of {CLUSTER_REFS}")
+        if self.cluster_ref != "query" and self.mode != "cluster":
+            raise ValueError("cluster_ref anchor/shuffled needs mode cluster")
+        self.last = {}
+        self.episode_labels = None
+        if self.mode == "cluster":
+            ks = int(cfg.get("kmeans_seed", KMEANS_SEED))
+            if ks != KMEANS_SEED:
+                self.cluster = kmeans_labels_seed(dataset, features, adj, self.info["k"], ks).to(device)
+            self.cluster_size = torch.bincount(self.cluster, minlength=int(self.cluster.max()) + 1)
+            self.info.update(cluster_ref=self.cluster_ref, kmeans_seed=ks)
+            if self.cluster_ref == "shuffled":
+                self.shuffle_generator = torch.Generator(device=device)
+                self.shuffle_generator.manual_seed(int(seed) + SHUFFLED_SEED_OFFSET)
+        if self.mode == "far":
+            top = int(cfg.get("far_top", FAR_TOP))
+            if top != FAR_TOP:
+                table = raw_cos_table(dataset, features, k=RAW_TABLE_K if top <= RAW_TABLE_K else FAR_STRONG_TABLE_K)
+                if top > table["ids"].shape[1]:
+                    raise ValueError(f"far_top {top} > table size")
+                self.top = table["ids"][:, :top].to(device)
+            self.info.update(far_top=top)
+
+    def set_episode(self, support_labels, query_labels):
+        self.episode_labels = (support_labels, query_labels)
+
+    @torch.no_grad()
+    def sample(self, support_ids, query_ids):
+        if self.mode != "cluster":
+            return super().sample(support_ids, query_ids)
+        q_count = query_ids.numel()
+        if self.cluster_ref == "query":
+            ref = self.cluster[query_ids]
+        elif self.cluster_ref == "anchor":
+            support_labels, query_labels = self.episode_labels
+            ref = self.cluster[own_support(support_ids, support_labels, query_labels)]
+            self.last["anc_same_cluster"] = float((ref == self.cluster[query_ids]).float().mean())
+        else:  # shuffled: u uniform over the nodes outside C(q)
+            outside = self.cluster[None, :] != self.cluster[query_ids][:, None]
+            scores = torch.rand((q_count, self.num_nodes), generator=self.shuffle_generator, device=self.device)
+            u = scores.masked_fill(~outside, -1.0).argmax(dim=1)
+            ref = self.cluster[u]
+        self.last["excl_cluster_size"] = float(self.cluster_size[ref].float().mean())
+        if self.m == 0:
+            return torch.empty((q_count, 0), dtype=torch.long, device=self.device), 0.0
+        excluded = torch.zeros(self.num_nodes, dtype=torch.bool, device=self.device)
+        excluded[support_ids] = True
+        excluded[query_ids] = True
+        banned = excluded[None, :].expand(q_count, -1).clone()
+        banned |= self.cluster[None, :] == ref[:, None]
+        return self._uniform(banned), 0.0
+
+
+class ReferenceSets:
+    """HW07 diagnostics (no labels): reference cluster C(q) (k100, seed 20261108) and reference far set
+    F(q) = shortest-path ≤ 2 ∪ raw-cos top-100."""
+
+    def __init__(self, dataset, features, adj, edge_index, num_nodes, device):
+        self.cluster = kmeans_labels(dataset, features, adj, KMEANS_DEFAULT_K).to(device)
+        self.top = raw_cos_table(dataset, features)["ids"][:, :FAR_TOP].to(device)
+        self.adj = adjacency_torch(edge_index, num_nodes, device)
+
+    @torch.no_grad()
+    def diagnostics(self, query_ids, extra):
+        if extra.numel() == 0:
+            return {}
+        in_c = self.cluster[extra] == self.cluster[query_ids][:, None]
+        near = within_two_hops(self.adj, query_ids).gather(1, extra)
+        in_top = (extra[:, :, None] == self.top[query_ids][:, None, :]).any(dim=2)
+        return {"xneg_in_qcluster": float(in_c.float().mean()), "xneg_in_farset": float((near | in_top).float().mean())}

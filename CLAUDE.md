@@ -1,8 +1,9 @@
 # CLAUDE.md — NAQ 리포, 브랜치 `hl/hsan-weighting` (HW 트랙)
 
-개정 8 · 2026-11-08 · 작성: 이희태 (Claude 정리)
+개정 9 · 2026-11-09 · 작성: 이희태 (Claude 정리)
 이 파일은 이 브랜치에서 Claude Code Agent가 따르는 규약이다. 지시서(`instructions/HW##_*.md`)가 이 파일과 어긋나면 **지시서가 우선**하되, 어긋난 항목을 보고서에 적는다.
 
+> 개정 9 (HW06 반영, HW07 준비): `extra_neg`의 `cluster_ref`·`kmeans_seed`·`far_top` 키와 진단 `xneg_in_qcluster`·`xneg_in_farset`(§4.2), HW06 결과·band 보류(§9), 사전 등록부(§8).
 > 개정 8 (HW05 반영, HW06 준비): 큰 그림과 방향(§0), `extra_neg` 확장(far·band·cluster)·에피소드 안 query 양성/음성·`geom_diag` 상관 지표(§4.2), HW05 결과와 종결 항목(§9), 사전 등록부(§8).
 > 개정 7 (HW03b 반영, HW05 준비): 트랙 방향 전환(§0), 추가 음성 블록 `extra_neg`·이웃 항 분해 `nbr_term`·기하 진단 `geom_diag`·`episodes` 재정의(§4.2), 복제 run 명명(§4.3), HW03b 결과와 종결 항목(§9), 사전 등록부(§8).
 > 개정 6 (HW04a 반영, HW03b 준비): `pick` 확장 `self`·`global_random`(§4.2), `valid_tasks`와 두 checkpoint test 측정(§4.2, §5), `summarize --metric`(§4.3), validation 500 캐시(§2), HW04a 결과(§9), 사전 등록부(§8).
@@ -14,7 +15,7 @@
 
 - 석휘(Choi)의 새 계열 NaQ 실험(표 1) 위에서 출발했다. 아이디어 2(HSAN식 가중치, W)는 HW02·HW03a로, 아이디어 1의 "이웃 양성의 내용" 서사는 HW03b로 종결(§9).
 - **큰 그림 (희태·석휘 합의, 2026-11-08)**: ① 더 나은 양성/음성 샘플링 → ② 갖춰진 양성/음성 위에서 HSAN식 당김/밀어냄 강도 조절 → ③ 임베딩 차원 간 과상관 해결. 별도로 에피소드를 넘는 전역 손실을 검토한다(형태 미정).
-- **현재 단계 (HW05 이후)**: ①의 음성 쪽. NaQ는 query당 음성이 support 4개뿐이며, L_original 분모에 무작위 음성 20개를 더하면 +1.62 / +0.80(HW05). 무작위가 최선이라고 보지 않으며, 여러 음성 샘플링 전략을 같은 m에서 무작위와 비교한다.
+- **현재 단계 (HW06 이후)**: ①의 음성 쪽. 4000 episode에서 무작위 음성 m 20/50/100/200은 `naq` 대비 +1.15~+1.50 / +0.61~+0.70(HW06). 같은 m 20에서 무작위를 넘은 전략은 Cora의 cluster(+0.39, 10/10) 하나다. 지금은 **cluster 효과가 실재하는지와 그 기제**를 검증하고, far를 큰 m에서 재확인한다.
 - **1차 목표 (희태 결정 1, 2026-11-07)**: 같은 조건에서 NaQ·VISION을 넘는 것. train-free Â²X 기준선은 측정값으로만 기록하고 지금은 목표로 삼지 않는다.
 - 모든 실험은 **단일 실행 파일(`hw/run.py`) + 단일 설정 파일(`configs/hw.json`) + results/ + reports/** 위에서 돌린다.
 
@@ -28,8 +29,8 @@
 | 지시서 | `instructions/HW##[a-z]_<server>.md` |
 | 사전 등록 | `HWP###` |
 | 보고서 | `reports/HW##[a-z]_<server>.md` |
-| 태그 | `hw01`, `hw02`, `hw03a`, `hw04m`, `hw04a`, `hw03b`, `hw05`, … (지시서가 정한 서버만) |
-| 커밋 메시지 | `HW06-a [iislab4]: <내용>` (지시서 번호 + 단계 문자 + 서버) |
+| 태그 | `hw01`, `hw02`, `hw03a`, `hw04m`, `hw04a`, `hw03b`, `hw05`, `hw06`, … (지시서가 정한 서버만) |
+| 커밋 메시지 | `HW07-a [iislab4]: <내용>` (지시서 번호 + 단계 문자 + 서버) |
 
 ## 2. 서버와 환경
 
@@ -42,7 +43,7 @@
 - 평가 에피소드 캐시 `save/downstream_tasks/<ds>/5way_5shot.pkl` (md5 Cora_full `cfef6a69…`, Amazon_clothing `ca3edaca…`). 지우거나 다시 만들지 않는다.
 - validation 500 캐시 `save/valid500/<ds>.pkl` (HW03b): 앞 50개 = 기존 validation 50개, 뒤 450개 = 같은 validation 클래스에서 새로 뽑은 task. test task는 기존 캐시 그대로.
 - `data/`, `save/`, `cache/`, `out/`은 git 밖. 서버 간 이동은 사람이 rsync로 한다.
-- git 밖 캐시: `cache/bgrl/<ds>.pt`(HW03a), `cache/ppr/<ds>_a{015,050}_top100.pt`, `cache/curv/<ds>.pt`(HW04m).
+- git 밖 캐시: `cache/bgrl/<ds>.pt`(HW03a), `cache/ppr/<ds>_a{015,050}_top100.pt`, `cache/curv/<ds>.pt`(HW04m), `cache/rawcos/<ds>_top500.pt`, `cache/kmeans/<ds>_k100.pt`(HW06).
 - run당 시간: iislab4 GPU당 1 run 51–73 s.
 
 ### 2.1 파일 전달 (개정 5)
@@ -99,6 +100,8 @@ NAQ/
 - `nbr_term ∈ {infonce, pull, push}` (기본 `infonce`, HW05): L_neighbor를 `pull` = mean_q ‖z_q − z_{n(q,s⁺)}‖²/T (당김만), `push` = mean_q logsumexp_s(−‖z_q − z_{n(q,s)}‖²/T) (밀어냄만)으로 바꾼다. `pull + push = infonce`(상수 log|P| 제외).
 - `extra_neg` 블록 (HW05): `mode ∈ {none, random, hard_raw, hard_a2x}` (기본 `none`), `m`(개수). L_original의 분모에 query마다 노드 m개를 음성으로 추가한다(양성·λ 없음). 후보에서 그 에피소드의 support 5개와 pseudo-query 50개, query 자신을 제외한다. `random` = 균등(전용 Generator seed + 23757), `hard_*` = query와 cos 상위(raw 또는 Â²X L2 정규화, 사전 표 top-100에서 제외 후 m개; 부족분은 random으로 채우고 비율 기록).
 - `extra_neg` 확장 (HW06): `mode`에 `far`(q의 2-hop 이내 ∪ raw cos 상위 100 제외 후 균등), `band`(q의 raw cos 순위 `band_lo`–`band_hi`, 기본 101–500 구간에서 균등), `cluster`(Â²X L2 정규화 k-means, `k` 기본 100, q와 다른 군집에서 균등)를 추가. 후보 제외 규칙은 `random`과 같다. 각 모드는 전용 Generator를 쓴다.
+- `extra_neg` 키 추가 (HW07): `cluster_ref ∈ {query, anchor, shuffled}`(기본 `query` = HW06 `cluster`와 같음; `anchor` = q의 양성 support s⁺의 군집 제외; `shuffled` = q의 군집 밖에서 균등하게 뽑은 노드 u의 군집 제외 — 제외 군집 크기 분포를 q 기준과 같게 맞춘 대조군), `kmeans_seed`(기본 20261108; 다르면 `cache/kmeans/<ds>_k<k>_s<seed>.pt`), `far_top`(기본 100; far의 raw cos 제외 상위 개수).
+- 진단 (HW07): 모든 `extra_neg` arm에 `xneg_in_qcluster`(추가 음성 중 q의 k100·seed 20261108 군집에 속한 비율), `xneg_in_farset`(추가 음성 중 q의 2-hop ∪ raw cos 상위 100에 속한 비율). 레이블 불필요.
 - `ep_query_neg` (기본 false, HW06): 같은 에피소드에서 q와 다른 pseudo-class의 pseudo-query(40개)를 L_original 분모에 음성으로 추가. `ep_query_pos` (기본 false, HW06): 같은 pseudo-class의 다른 pseudo-query(9개)를 양성 집합 P(q)에 추가(기존 다중 양성 식 logsumexp_all − logsumexp_P + log|P| 그대로).
 - `geom_diag` (기본 false, HW05): 500 기준 best checkpoint에서 고정 표본 4096 노드(전용 Generator seed 2026)의 z로 평균 노름, 노름 표준편차, 평균 쌍 거리, uniformity(log mean exp(−2‖û−v̂‖²), L2 정규화), effective rank(중심화 표본 특이값 분포의 엔트로피 지수)를 `metrics.json`의 `geom`에 기록한다. HW06부터 `corr_offdiag_mean`(표본 z의 차원 간 Pearson 상관 행렬에서 비대각 |상관|의 평균)과 `dim`을 추가.
 - `episodes` (기본 2000): arm에서 재정의할 수 있다. `eval_every`는 그대로.
@@ -166,8 +169,9 @@ NAQ/
 | HWP033–040 | HW04a_iislab4 | 완료 (충족 033·039·040) |
 | HWP041–048 | HW03b_iislab4 | 완료 (충족 041·043·045·048) |
 | HWP049–058 | HW05_iislab4 | 완료 (충족 049–051·053–055·057) |
-| HWP059–069 | HW06_iislab4 | 배정 |
-| HWP070– | 다음 | 미배정 |
+| HWP059–069 | HW06_iislab4 | 완료 (충족 059–061·063·064·066·068·069) |
+| HWP070–078 | HW07_iislab4 | 배정 |
+| HWP079– | 다음 | 미배정 |
 
 ## 9. 현재 상태와 계획
 
@@ -179,6 +183,8 @@ NAQ/
 - **HW03b** (hw03b, validation 500): `self`(양성 = support) = `naq_base`(|Δ| ≤ 0.04). **무작위 양성(순도 0.02)이 모든 λ·두 ds에서 이웃 양성보다 높음**: λ 0.3 `grand − naq` +1.80 / +0.95 (10/10), `raw − grand` −0.94 / −0.48. `raw`는 λ 단조 증가(λ 1.0 Cora +1.46). validation 500은 `self`–`naq` 쌍 sd 0.04 vs 0.35. best epoch 다수 2000. Dirichlet 에너지(식 13) ≈ 단어 빈도(ρ 0.95 / 0.81).
 - **종결 (재개하지 않는다)**: `euclid_gradscale`; HSAN 가중(W) 전 형태; cos τ 실험(결정 2); BGRL 실험(결정 3); **양성 선택 정교화**(1-hop/2-hop·기준·공간·순도 — HW03a·HW04a·HW03b: 모두 ±0.17 안이거나 무작위보다 낮음); SPGCL EAP 이식(에너지 = 빈도 문제 미해결); 아이디어 A(이웃 겹침 anchor 병합, HW05 측정); 특징 근접 top-k hard negative(HW05).
 - **HW05** (hw05): 무작위 양성 이득의 기제 = **추가 음성**. L_original 분모에 무작위 음성 m 20: +1.62 / +0.80, m 5: +1.16 / +0.54 (10/10). pull만 −6.69 / −0.46, push만 −3.79 / −11.22. raw cos 상위 20 음성은 FN rate 0.30 / 0.54, 무작위 음성 대비 −7.63 / −7.85(Â²X 상위는 −43.71 / −12.65). 4000 episode: naq +0.92 / +0.55, grand +0.63 / +0.39. 이웃 항 λ1.0 + 무작위 20: +2.10 / +0.87. 아이디어 A: Jaccard θ0.3 병합 정밀도 0.55 / 0.65(1-hop 순도 수준), 같은 클래스 쌍의 90–93%는 공통 이웃 0.
-- **진행**: HW06 — 4000 episode 기준, 무작위 음성 m 곡선, 음성 전략(far·band·cluster, m 20), 에피소드 안 query 음성/양성, 차원 상관 측정.
+- **HW06** (hw06, 4000 episode): `naq` 78.69 / 91.38. 무작위 m 20 / 50 / 100 / 200: +1.15 / +1.31 / +1.39 / +1.50 (Cora), +0.61 / +0.70 / +0.66 / +0.66 (Amazon). m 20 전략 `− rand_m20`: cluster +0.39 (10/10) / +0.00, far +0.07 / −0.05, band −1.04 / −8.44(FN 0.099 / 0.262). query 음성만 +0.33 / +0.19, query 음성 + 무작위 20은 무작위 20보다 −0.19 / −0.14, query 양성 추가 −2.94 / −2.77. 차원 |상관|은 음성 m이 클수록 감소, band가 가장 낮음(0.114 / 0.083).
+- **진행**: HW07 — cluster 효과 검증(무작위 군집 대조, k-means seed, anchor 군집, m 100/200), far m 200·far_strong, 제외 집합 측정.
+- **보류**: band(semi-hard) — 고정 raw 순위 기준은 FN에 따라 손해. 섞어 쓰기·학습 임베딩 기준 동적 어려움은 큰 그림 ②에서 다시 검토.
 - **대기**: 이긴 전략의 최적 m 재확인, 큰 그림 ②(HSAN식 강도 조절 — 가까운 음성 = FN 위험이라는 HW05 결과를 반영해 설계), 전역 손실, VISION 동일 프로토콜 기준선.
 - 석휘 표 1 (석휘 서버, seed 1212): exp001 77.72/90.48; exp012 78.55/90.70; exp015 79.00/90.72; exp016 79.52/91.21 (Cora_full/Amazon_clothing).
