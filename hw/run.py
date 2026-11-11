@@ -257,7 +257,7 @@ def load_test_pool(dataset, n_way, k_shot):
 def parse_cli():
     parser = argparse.ArgumentParser(description="HW track runner")
     parser.add_argument("--arm", required=True)
-    parser.add_argument("--dataset", required=True, choices=["Cora_full", "Amazon_clothing"])
+    parser.add_argument("--dataset", required=True, choices=["Cora_full", "Amazon_clothing", "dblp", "Amazon_eletronics"])
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--device", type=int, default=None)
     return parser.parse_args()
