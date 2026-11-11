@@ -1,6 +1,6 @@
 """HW03a-s4: train-free baselines — ProtoNet evaluation directly on X, ÂX, Â²X (raw and L2-row-normalized).
 
-    python -m hw.trainfree --dataset <ds>
+    python -m hw.trainfree --dataset <ds> [--shot {5,1}]
 
 Â = data.adj = utils.normalize_adj(A + I) = D^-1/2 (A+I) D^-1/2 (edge lists of both datasets are
 symmetric without self-loops/duplicates; checked again below against an independent build).
@@ -8,6 +8,8 @@ Evaluation: hw.evaluate.evaluate unchanged, on the cached valid (50) / test (500
 (save/downstream_tasks/<ds>/5way_5shot.pkl). Labels are used only inside evaluation. No training.
 The table also lists this server's 5-seed means of naq_base and nbr_raw (results/hw/summary.csv).
 Output: $HW_RESULTS_ROOT (default results/hw)/trainfree/HW03a_trainfree_<ds>.{json,md}.
+HW09: --shot 1 evaluates on save/downstream_tasks/<ds>/5way_1shot.pkl and writes HW03a_trainfree_<ds>_1shot.{json,md};
+the default --shot 5 is the previous behaviour and output.
 """
 
 import argparse
@@ -34,7 +36,8 @@ REFERENCE_ARMS = ("naq_base", "nbr_raw")
 
 def parse_cli():
     parser = argparse.ArgumentParser(description="train-free baselines (HW03a-s4)")
-    parser.add_argument("--dataset", required=True, choices=["Cora_full", "Amazon_clothing"])
+    parser.add_argument("--dataset", required=True, choices=["Cora_full", "Amazon_clothing", "dblp", "Amazon_eletronics"])
+    parser.add_argument("--shot", type=int, default=5, choices=[5, 1], help="HW09: k-shot of the cached evaluation episodes")
     parser.add_argument("--seed", type=int, default=1212, help="only for load_data's class shuffle; eval episodes come from the cache")
     return parser.parse_args()
 
@@ -78,6 +81,7 @@ def main():
     cfg = load_config("naq_base")
     cfg["seed"] = cli.seed
     args = build_args(cfg, cli.dataset)
+    args.k_shot_test = cli.shot  # HW09: selects the cached 5way_<k>shot.pkl (5 = previous behaviour)
     seed_everything(cli.seed)
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
@@ -114,12 +118,15 @@ def main():
 
     out_dir = RESULTS_ROOT / "trainfree"
     out_dir.mkdir(parents=True, exist_ok=True)
-    with open(out_dir / f"HW03a_trainfree_{cli.dataset}.json", "w", encoding="utf-8") as file:
+    suffix = "" if cli.shot == 5 else f"_{cli.shot}shot"
+    if cli.shot != 5:
+        result["shot"] = cli.shot
+    with open(out_dir / f"HW03a_trainfree_{cli.dataset}{suffix}.json", "w", encoding="utf-8") as file:
         json.dump(result, file, indent=2)
     lines = [
         f"# HW03a train-free baselines — {cli.dataset}",
         "",
-        f"5-way 5-shot ProtoNet (squared Euclidean), cached episodes: valid {len(valid_pool)} / test {len(test_pool)}. Accuracy %.",
+        f"5-way {cli.shot}-shot ProtoNet (squared Euclidean), cached episodes: valid {len(valid_pool)} / test {len(test_pool)}. Accuracy %.",
         f"Â = data.adj = D^-1/2 (A+I) D^-1/2 (max |diff| vs independent build: {adj_check:.2e}). No training.",
         "",
         "| 특징 | 행 정규화 | val | test | test ci95 |",
@@ -131,7 +138,7 @@ def main():
         lines.append(f"| {labels[name]} | {'L2' if norm == 'l2' else '없음'} | {100 * vals['validation']['accuracy_mean']:.2f} | {100 * vals['test']['accuracy_mean']:.2f} | {100 * vals['test']['accuracy_ci95_half_width']:.2f} |")
     for arm, ref in result["reference_trained"].items():
         lines.append(f"| {arm} (학습, seio {ref['n']} seed 평균 ± 표준편차) | — | {ref['val_mean']:.2f} | {ref['test_mean']:.2f} ± {ref['test_std']:.2f} | — |")
-    (out_dir / f"HW03a_trainfree_{cli.dataset}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out_dir / f"HW03a_trainfree_{cli.dataset}{suffix}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     print(f"elapsed {result['elapsed_seconds']} s")
 

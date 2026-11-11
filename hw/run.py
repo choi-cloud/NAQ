@@ -12,6 +12,7 @@ import json
 import math
 import os
 import sys
+import pickle
 import time
 from collections import deque
 from copy import deepcopy
@@ -243,6 +244,16 @@ def norm_diagnostics(embeddings, task_pool, n_way):
     }
 
 
+def load_test_pool(dataset, n_way, k_shot):
+    """HW09: test pool of save/downstream_tasks/<ds>/<n>way_<k>shot.pkl (read only; never sampled here)."""
+    path = Path(f"save/downstream_tasks/{dataset}/{n_way}way_{k_shot}shot.pkl")
+    if not path.is_file():
+        raise FileNotFoundError(f"missing evaluation cache {path}")
+    with open(path, "rb") as file:
+        _, test_pool = pickle.load(file)
+    return test_pool
+
+
 def parse_cli():
     parser = argparse.ArgumentParser(description="HW track runner")
     parser.add_argument("--arm", required=True)
@@ -297,6 +308,11 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     save_best = bool(cfg.get("save_best", False))  # HW08: best checkpoints under CKPT_ROOT
     if eval_l2 and not v500:
         raise ValueError("eval_l2 requires valid_tasks 500")
+    test_shots = [int(shot) for shot in cfg.get("test_shots", [5])]  # HW09: extra k-shot test on the same checkpoints
+    if test_shots not in ([5], [5, 1]):
+        raise ValueError("test_shots must be [5] or [5, 1]")
+    if 1 in test_shots and not eval_l2:
+        raise ValueError("test_shots [5, 1] requires eval_l2")
     ep_query_neg = bool(cfg.get("ep_query_neg", False))  # HW06
     ep_query_pos = bool(cfg.get("ep_query_pos", False))
     if ep_query_pos and not ep_query_neg:
@@ -602,6 +618,26 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 test_acc_raw_at_bestl2=testing_raw_at_l2["accuracy_mean"],
                 best_epoch_500_l2=result["best_l2"]["epoch"],
                 same_epoch_l2=bool(same_epoch_l2),
+            )
+        if 1 in test_shots:  # HW09: 1-shot test on the same raw / l2 checkpoints (cached file only, no RNG)
+            test_pool_1 = load_test_pool(dataset, args.n_way, 1)
+            one_shot = {}
+            for name, state in (("raw", best_state), ("l2", None if result["same_epoch_l2"] else best_state_l2)):
+                if state is None:  # same epoch as the raw best -> values copied
+                    one_shot[name] = one_shot["raw"]
+                    continue
+                model.network.load_state_dict(state)
+                model.eval()
+                with torch.no_grad():
+                    clean = model.network(features, adj=data.adj)
+                    one_shot[name] = (evaluate(clean, test_pool_1, args.n_way, device), evaluate_l2(clean, test_pool_1, args.n_way, device))
+            result.update(
+                test_shots=test_shots,
+                test_tasks_1shot=len(test_pool_1),
+                test_acc_1shot=one_shot["raw"][0]["accuracy_mean"],
+                test_acc_l2_at_bestraw_1shot=one_shot["raw"][1]["accuracy_mean"],
+                test_acc_l2_1shot=one_shot["l2"][1]["accuracy_mean"],
+                test_acc_raw_at_bestl2_1shot=one_shot["l2"][0]["accuracy_mean"],
             )
         if save_best:  # HW08: checkpoints outside git
             ckpt_dir = CKPT_ROOT / arm / dataset / f"seed{seed}"

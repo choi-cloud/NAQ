@@ -1,0 +1,403 @@
+{
+  "G-data": {
+    "pass": true,
+    "datasets": {
+      "Cora_full": {
+        "files_present": true,
+        "loader_read": true,
+        "cache_5shot": true,
+        "cache_1shot": true,
+        "test_classes_1shot_eq_5shot": true,
+        "valid500": true,
+        "pass": true
+      },
+      "Amazon_clothing": {
+        "files_present": true,
+        "loader_read": true,
+        "cache_5shot": true,
+        "cache_1shot": true,
+        "test_classes_1shot_eq_5shot": true,
+        "valid500": true,
+        "pass": true
+      },
+      "dblp": {
+        "files_present": true,
+        "loader_read": true,
+        "cache_5shot": true,
+        "cache_1shot": true,
+        "test_classes_1shot_eq_5shot": true,
+        "valid500": true,
+        "pass": true
+      },
+      "Amazon_eletronics": {
+        "files_present": true,
+        "loader_read": true,
+        "cache_5shot": true,
+        "cache_1shot": true,
+        "test_classes_1shot_eq_5shot": true,
+        "valid500": true,
+        "pass": true
+      }
+    }
+  },
+  "G-cfg": {
+    "pass": true,
+    "arms": {
+      "h9_naq": {
+        "ref": "l2_naq",
+        "equal": true,
+        "diff_keys": []
+      },
+      "h9_rand_m20": {
+        "ref": "l2_rand_m20",
+        "equal": true,
+        "diff_keys": []
+      },
+      "h9_rand_m50": {
+        "ref": "l2_rand_m50",
+        "equal": true,
+        "diff_keys": []
+      },
+      "h9_clus_m20": {
+        "ref": "l2_clus_m20",
+        "equal": true,
+        "diff_keys": []
+      }
+    }
+  },
+  "G-ckpt": {
+    "pass": true,
+    "detail": {
+      "runs_checked": 80,
+      "max_abs_diff": 0.0,
+      "failures": {}
+    }
+  },
+  "G-tf": {
+    "pass": true,
+    "datasets": {
+      "Cora_full": {
+        "A2X_l2": {
+          "value": 80.12000133991242,
+          "expected": 80.12,
+          "abs_diff": 1.3399124156876496e-06,
+          "pass": true
+        },
+        "A2X_raw": {
+          "value": 67.57000123858452,
+          "expected": 67.57,
+          "abs_diff": 1.2385845309381693e-06,
+          "pass": true
+        }
+      },
+      "Amazon_clothing": {
+        "A2X_l2": {
+          "value": 92.71500096321105,
+          "expected": 92.715,
+          "abs_diff": 9.632110504753655e-07,
+          "pass": true
+        },
+        "A2X_raw": {
+          "value": 83.02500106096268,
+          "expected": 83.025,
+          "abs_diff": 1.0609626741597822e-06,
+          "pass": true
+        }
+      }
+    }
+  },
+  "regress": {
+    "pass": true,
+    "runs": {
+      "naq_base/Cora_full": {
+        "new": 77.78500126600265,
+        "existing": 77.95500127077104,
+        "delta": -0.17000000476838295,
+        "status": "completed",
+        "best_epoch_new": 2000,
+        "best_epoch_existing": 1760,
+        "metrics_keys_same_as_HW08_regress": true,
+        "pass": true
+      },
+      "naq_base/Amazon_clothing": {
+        "new": 90.59500100612641,
+        "existing": 90.60000106096268,
+        "delta": -0.005000054836273193,
+        "status": "completed",
+        "best_epoch_new": 1600,
+        "best_epoch_existing": 1600,
+        "metrics_keys_same_as_HW08_regress": true,
+        "pass": true
+      },
+      "nbr_raw/Cora_full": {
+        "new": 78.1100012898445,
+        "existing": 78.1450012922287,
+        "delta": -0.03500000238419432,
+        "status": "completed",
+        "best_epoch_new": 2000,
+        "best_epoch_existing": 2000,
+        "metrics_keys_same_as_HW08_regress": true,
+        "pass": true
+      },
+      "nbr_raw/Amazon_clothing": {
+        "new": 90.88000100255013,
+        "existing": 90.88500108122825,
+        "delta": -0.005000078678122577,
+        "status": "completed",
+        "best_epoch_new": 1280,
+        "best_epoch_existing": 1280,
+        "metrics_keys_same_as_HW08_regress": true,
+        "pass": true
+      }
+    }
+  },
+  "invariant": {
+    "pass": true,
+    "detail": {
+      "start_head": "50fda1cae954d4ece6a2c0c1d74ace1d1a096422",
+      "frozen_files": [
+        "hw/losses.py",
+        "hw/negatives.py",
+        "hw/neighbors.py",
+        "hw/episodes.py",
+        "hw/evaluate.py"
+      ],
+      "frozen_diff_empty": true,
+      "deleted_lines": {
+        "hw/run.py": [],
+        "hw/trainfree.py": [
+          "    python -m hw.trainfree --dataset <ds>",
+          "    parser.add_argument(\"--dataset\", required=True, choices=[\"Cora_full\", \"Amazon_clothing\"])",
+          "    with open(out_dir / f\"HW03a_trainfree_{cli.dataset}.json\", \"w\", encoding=\"utf-8\") as file:",
+          "        f\"5-way 5-shot ProtoNet (squared Euclidean), cached episodes: valid {len(valid_pool)} / test {len(test_pool)}. Accuracy %.\",",
+          "    (out_dir / f\"HW03a_trainfree_{cli.dataset}.md\").write_text(\"\\n\".join(lines) + \"\\n\", encoding=\"utf-8\")"
+        ],
+        "hw/valid500.py": [
+          "    parser.add_argument(\"--dataset\", required=True, choices=[\"Cora_full\", \"Amazon_clothing\"])"
+        ]
+      },
+      "deleted_line_counts": {
+        "hw/run.py": 0,
+        "hw/trainfree.py": 5,
+        "hw/valid500.py": 1
+      }
+    }
+  },
+  "smoke": {
+    "pass": true,
+    "runs": {
+      "h9_naq/dblp": {
+        "status": "completed",
+        "missing": [],
+        "same_epoch_l2": true,
+        "files": {
+          "/tmp/hw_smoke/hw09_smoke/ckpt/h9_naq/dblp/seed1212/best_raw.pt": 15279064
+        },
+        "bytes_match": true,
+        "test_tasks_1shot": 500,
+        "elapsed_seconds": 16.63,
+        "max_mem_alloc_MiB": 9693.47705078125,
+        "max_mem_reserved_MiB": 9712.0,
+        "1shot_values": {
+          "test_acc_1shot": 0.5772500101923943,
+          "test_acc_l2_at_bestraw_1shot": 0.6850500106811523,
+          "test_acc_l2_1shot": 0.6850500106811523,
+          "test_acc_raw_at_bestl2_1shot": 0.5772500101923943
+        },
+        "pass": true
+      },
+      "h9_naq/Amazon_eletronics": {
+        "status": "completed",
+        "missing": [],
+        "same_epoch_l2": true,
+        "files": {
+          "/tmp/hw_smoke/hw09_smoke/ckpt/h9_naq/Amazon_eletronics/seed1212/best_raw.pt": 18283480
+        },
+        "bytes_match": true,
+        "test_tasks_1shot": 500,
+        "elapsed_seconds": 17.41,
+        "max_mem_alloc_MiB": 11044.40869140625,
+        "max_mem_reserved_MiB": 11062.0,
+        "1shot_values": {
+          "test_acc_1shot": 0.42165000866353514,
+          "test_acc_l2_at_bestraw_1shot": 0.6196000107824803,
+          "test_acc_l2_1shot": 0.6196000107824803,
+          "test_acc_raw_at_bestl2_1shot": 0.42165000866353514
+        },
+        "pass": true
+      },
+      "h9_clus_m20/dblp": {
+        "status": "completed",
+        "missing": [],
+        "same_epoch_l2": true,
+        "files": {
+          "/tmp/hw_smoke/hw09_smoke/ckpt/h9_clus_m20/dblp/seed1212/best_raw.pt": 15279064
+        },
+        "bytes_match": true,
+        "test_tasks_1shot": 500,
+        "elapsed_seconds": 16.91,
+        "max_mem_alloc_MiB": 9693.47705078125,
+        "max_mem_reserved_MiB": 9716.0,
+        "1shot_values": {
+          "test_acc_1shot": 0.5943500108718872,
+          "test_acc_l2_at_bestraw_1shot": 0.7020500114560128,
+          "test_acc_l2_1shot": 0.7020500114560128,
+          "test_acc_raw_at_bestl2_1shot": 0.5943500108718872
+        },
+        "pass": true
+      },
+      "h9_clus_m20/Amazon_eletronics": {
+        "status": "completed",
+        "missing": [],
+        "same_epoch_l2": true,
+        "files": {
+          "/tmp/hw_smoke/hw09_smoke/ckpt/h9_clus_m20/Amazon_eletronics/seed1212/best_raw.pt": 18283480
+        },
+        "bytes_match": true,
+        "test_tasks_1shot": 500,
+        "elapsed_seconds": 17.52,
+        "max_mem_alloc_MiB": 11044.40869140625,
+        "max_mem_reserved_MiB": 11064.0,
+        "1shot_values": {
+          "test_acc_1shot": 0.4308500076532364,
+          "test_acc_l2_at_bestraw_1shot": 0.6349000129699707,
+          "test_acc_l2_1shot": 0.6349000129699707,
+          "test_acc_raw_at_bestl2_1shot": 0.4308500076532364
+        },
+        "pass": true
+      },
+      "forced_different_epoch_h9_naq/dblp": {
+        "status": "completed",
+        "best_epoch_500": 8,
+        "best_epoch_500_l2": 1,
+        "same_epoch_l2": false,
+        "ckpt": {
+          "best_raw": "/tmp/hw_smoke/hw09_forced/ckpt/h9_naq/dblp/seed1212/best_raw.pt",
+          "best_l2": "/tmp/hw_smoke/hw09_forced/ckpt/h9_naq/dblp/seed1212/best_l2.pt",
+          "bytes": 30557928
+        },
+        "reload_abs_diff": {
+          "test_acc": 0.0,
+          "test_acc_l2_at_bestraw": 0.0,
+          "test_acc_l2": 0.0,
+          "test_acc_raw_at_bestl2": 0.0,
+          "test_acc_1shot": 0.0,
+          "test_acc_l2_at_bestraw_1shot": 0.0,
+          "test_acc_l2_1shot": 0.0,
+          "test_acc_raw_at_bestl2_1shot": 0.0
+        },
+        "raw_equal_unforced": true,
+        "pass": true
+      }
+    }
+  },
+  "time_rule": {
+    "per_run": {
+      "h9_naq/dblp": {
+        "runs": {
+          "smoke": [
+            16.63,
+            8,
+            8
+          ],
+          "a": [
+            26.1,
+            2,
+            320
+          ],
+          "b": [
+            33.74,
+            10,
+            320
+          ]
+        },
+        "per_eval_s": 0.9550000000000001,
+        "per_episode_s": 0.048717948717948725,
+        "fixed_s": 8.600256410256408,
+        "est_4000_s": 227.3470512820513
+      },
+      "h9_naq/Amazon_eletronics": {
+        "runs": {
+          "smoke": [
+            17.41,
+            8,
+            8
+          ],
+          "a": [
+            26.39,
+            2,
+            320
+          ],
+          "b": [
+            35.36,
+            10,
+            320
+          ]
+        },
+        "per_eval_s": 1.1212499999999999,
+        "per_episode_s": 0.05034455128205128,
+        "fixed_s": 8.037243589743591,
+        "est_4000_s": 237.4466987179487
+      },
+      "h9_clus_m20/dblp": {
+        "runs": {
+          "smoke": [
+            16.91,
+            8,
+            8
+          ],
+          "a": [
+            27.44,
+            2,
+            320
+          ],
+          "b": [
+            35.61,
+            10,
+            320
+          ]
+        },
+        "per_eval_s": 1.0212499999999998,
+        "per_episode_s": 0.05338942307692307,
+        "fixed_s": 8.312884615384618,
+        "est_4000_s": 247.4018269230769
+      },
+      "h9_clus_m20/Amazon_eletronics": {
+        "runs": {
+          "smoke": [
+            17.52,
+            8,
+            8
+          ],
+          "a": [
+            28.54,
+            2,
+            320
+          ],
+          "b": [
+            38.61,
+            10,
+            320
+          ]
+        },
+        "per_eval_s": 1.25875,
+        "per_episode_s": 0.059527243589743595,
+        "fixed_s": 6.9737820512820505,
+        "est_4000_s": 276.5515064102564
+      }
+    },
+    "mean_est_4000_s_per_ds": {
+      "dblp": 237.3744391025641,
+      "Amazon_eletronics": 256.99910256410254
+    },
+    "runs": {
+      "dblp": 40,
+      "Amazon_eletronics": 40
+    },
+    "gpus": 8,
+    "est_total_min": 41.197795138888885,
+    "limit_min": 150.0,
+    "reduce_seeds": false
+  },
+  "all_pass": true
+}

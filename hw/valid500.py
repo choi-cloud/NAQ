@@ -119,7 +119,7 @@ def build(dataset):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", required=True, choices=["Cora_full", "Amazon_clothing"])
+    parser.add_argument("--dataset", required=True, choices=["Cora_full", "Amazon_clothing", "dblp", "Amazon_eletronics"])
     report = build(parser.parse_args().dataset)
     print(json.dumps({k: v for k, v in report.items() if not k.endswith("classes")}, indent=2))
 
