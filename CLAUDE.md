@@ -1,8 +1,9 @@
 # CLAUDE.md — NAQ 리포, 브랜치 `hl/hsan-weighting` (HW 트랙)
 
-개정 9 · 2026-11-09 · 작성: 이희태 (Claude 정리)
+개정 10 · 2026-11-11 · 작성: 이희태 (Claude 정리)
 이 파일은 이 브랜치에서 Claude Code Agent가 따르는 규약이다. 지시서(`instructions/HW##_*.md`)가 이 파일과 어긋나면 **지시서가 우선**하되, 어긋난 항목을 보고서에 적는다.
 
+> 개정 10 (HW07 반영, HW08 준비): 평가 규약 raw·l2 정의와 병기 규칙(§5), `eval_l2`·`save_best`·`norm_diag`와 `metrics.json` 새 키(§4.2), `hw/evaluate.py`의 `evaluate_l2`·git 밖 `ckpt/`(§2, §3), 같은 지표끼리만 짝짓는 규칙(§4.3), HW07 결과와 현재 단계(§0, §9), 사전 등록부(§8).
 > 개정 9 (HW06 반영, HW07 준비): `extra_neg`의 `cluster_ref`·`kmeans_seed`·`far_top` 키와 진단 `xneg_in_qcluster`·`xneg_in_farset`(§4.2), HW06 결과·band 보류(§9), 사전 등록부(§8).
 > 개정 8 (HW05 반영, HW06 준비): 큰 그림과 방향(§0), `extra_neg` 확장(far·band·cluster)·에피소드 안 query 양성/음성·`geom_diag` 상관 지표(§4.2), HW05 결과와 종결 항목(§9), 사전 등록부(§8).
 > 개정 7 (HW03b 반영, HW05 준비): 트랙 방향 전환(§0), 추가 음성 블록 `extra_neg`·이웃 항 분해 `nbr_term`·기하 진단 `geom_diag`·`episodes` 재정의(§4.2), 복제 run 명명(§4.3), HW03b 결과와 종결 항목(§9), 사전 등록부(§8).
@@ -15,8 +16,8 @@
 
 - 석휘(Choi)의 새 계열 NaQ 실험(표 1) 위에서 출발했다. 아이디어 2(HSAN식 가중치, W)는 HW02·HW03a로, 아이디어 1의 "이웃 양성의 내용" 서사는 HW03b로 종결(§9).
 - **큰 그림 (희태·석휘 합의, 2026-11-08)**: ① 더 나은 양성/음성 샘플링 → ② 갖춰진 양성/음성 위에서 HSAN식 당김/밀어냄 강도 조절 → ③ 임베딩 차원 간 과상관 해결. 별도로 에피소드를 넘는 전역 손실을 검토한다(형태 미정).
-- **현재 단계 (HW06 이후)**: ①의 음성 쪽. 4000 episode에서 무작위 음성 m 20/50/100/200은 `naq` 대비 +1.15~+1.50 / +0.61~+0.70(HW06). 같은 m 20에서 무작위를 넘은 전략은 Cora의 cluster(+0.39, 10/10) 하나다. 지금은 **cluster 효과가 실재하는지와 그 기제**를 검증하고, far를 큰 m에서 재확인한다.
-- **1차 목표 (희태 결정 1, 2026-11-07)**: 같은 조건에서 NaQ·VISION을 넘는 것. train-free Â²X 기준선은 측정값으로만 기록하고 지금은 목표로 삼지 않는다.
+- **현재 단계 (HW07 이후)**: ①의 음성 쪽 결과가 모였다. 4000 episode에서 무작위 음성 m 20/50/100/200은 `naq` 대비 +1.15~+1.50 / +0.61~+0.70(HW06), Cora의 군집 제외는 무작위 대비 +0.39이고 대조군으로 확인됐다(HW07). **이 값들은 모두 raw 평가 기준이다**(§5). 학습 없는 Â²X 기준선 80.12 / 92.72는 L2 행 정규화 값이라 평가 조건이 다르다. 지금은 **핵심 arm을 raw·l2 두 평가로 다시 재는 것**이 먼저다(HW08).
+- **1차 목표 (희태 결정 1, 2026-11-07)**: 같은 조건에서 NaQ·VISION을 넘는 것. train-free Â²X 기준선은 측정값으로만 기록한다.
 - 모든 실험은 **단일 실행 파일(`hw/run.py`) + 단일 설정 파일(`configs/hw.json`) + results/ + reports/** 위에서 돌린다.
 
 ## 1. 트랙·브랜치·번호
@@ -29,8 +30,8 @@
 | 지시서 | `instructions/HW##[a-z]_<server>.md` |
 | 사전 등록 | `HWP###` |
 | 보고서 | `reports/HW##[a-z]_<server>.md` |
-| 태그 | `hw01`, `hw02`, `hw03a`, `hw04m`, `hw04a`, `hw03b`, `hw05`, `hw06`, … (지시서가 정한 서버만) |
-| 커밋 메시지 | `HW07-a [iislab4]: <내용>` (지시서 번호 + 단계 문자 + 서버) |
+| 태그 | `hw01`, `hw02`, `hw03a`, `hw04m`, `hw04a`, `hw03b`, `hw05`, `hw06`, `hw07`, … (지시서가 정한 서버만) |
+| 커밋 메시지 | `HW08-a [iislab4]: <내용>` (지시서 번호 + 단계 문자 + 서버) |
 
 ## 2. 서버와 환경
 
@@ -42,9 +43,10 @@
 - conda 환경 `taskns` 두 서버 동일(python 3.9.25, torch 2.4.1+cu121, torch_geometric 2.6.1, numpy 1.26.4, scipy 1.13.1, sklearn 1.5.2). **패키지 설치 금지.**
 - 평가 에피소드 캐시 `save/downstream_tasks/<ds>/5way_5shot.pkl` (md5 Cora_full `cfef6a69…`, Amazon_clothing `ca3edaca…`). 지우거나 다시 만들지 않는다.
 - validation 500 캐시 `save/valid500/<ds>.pkl` (HW03b): 앞 50개 = 기존 validation 50개, 뒤 450개 = 같은 validation 클래스에서 새로 뽑은 task. test task는 기존 캐시 그대로.
-- `data/`, `save/`, `cache/`, `out/`은 git 밖. 서버 간 이동은 사람이 rsync로 한다.
-- git 밖 캐시: `cache/bgrl/<ds>.pt`(HW03a), `cache/ppr/<ds>_a{015,050}_top100.pt`, `cache/curv/<ds>.pt`(HW04m), `cache/rawcos/<ds>_top500.pt`, `cache/kmeans/<ds>_k100.pt`(HW06).
-- run당 시간: iislab4 GPU당 1 run 51–73 s.
+- `data/`, `save/`, `cache/`, `out/`, `ckpt/`는 git 밖. 서버 간 이동은 사람이 rsync로 한다.
+- git 밖 캐시: `cache/bgrl/<ds>.pt`(HW03a), `cache/ppr/<ds>_a{015,050}_top100.pt`, `cache/curv/<ds>.pt`(HW04m), `cache/rawcos/<ds>_top500.pt`, `cache/kmeans/<ds>_k100.pt`(HW06), `cache/rawcos/<ds>_top1000.pt`, `cache/kmeans/<ds>_k100_s20261109.pt`(HW07).
+- git 밖 checkpoint: `ckpt/hw_iislab4/<arm>/<ds>/seed<S>/{best_raw.pt, best_l2.pt}`(HW08, `save_best: true`인 arm만).
+- run당 시간: iislab4 GPU당 1 run 51–73 s(2000 episode), 4000 episode는 약 2분.
 
 ### 2.1 파일 전달 (개정 5)
 - 사람이 지시서를 **`instructions/<지시서>.md`에 직접** 두고, 새 판 CLAUDE.md는 **리포 루트에 직접 덮어쓴다.** 드롭 폴더(`~/wkspace/HW_drop/`)는 쓰지 않는다.
@@ -61,8 +63,9 @@ NAQ/
 │   ├── legacy_naq_exp/            # 구 계열 exp001–049
 │   └── zip_20261107/              # 새 계열 exp004(BGRL)·012·015·016
 ├── hw/                            # 트랙 코드. 실행 진입점은 hw/run.py
-│   ├── run.py config.py episodes.py neighbors.py losses.py weights.py evaluate.py summarize.py
-│   ├── run_queue.sh repro_choi.sh trainfree.py
+│   ├── run.py config.py episodes.py neighbors.py negatives.py losses.py weights.py
+│   ├── evaluate.py                # evaluate (raw), evaluate_l2 (HW08)
+│   ├── summarize.py run_queue.sh repro_choi.sh trainfree.py
 │   ├── purity.py                  # HW03a, build_pool() (HW04m)
 │   ├── structure.py               # HW04m: 그래프 구조량 (hop, Â²X, PPR, 곡률)
 │   ├── measure_positive.py        # HW04m: 학습 없는 측정 진입점
@@ -72,6 +75,7 @@ NAQ/
 ├── results/hw/                    # seio
 ├── results/hw_iislab4/            # iislab4
 ├── results/measure/               # 학습 없는 결정적 측정 (서버 무관)
+├── ckpt/                          # git 밖 (HW08)
 ├── reports/  instructions/
 ```
 
@@ -86,7 +90,7 @@ NAQ/
 ### 4.2 설정 `configs/hw.json`
 - `defaults` + `arms[arm]` 병합. arm에 `base` 키가 있으면 그 arm을 먼저 깐다(한 단계).
 - CLI는 `--arm`, `--dataset`, `--seed`, `--device`만. 하이퍼파라미터는 설정에서만.
-- 주요 arm: `naq_base`(L_original만), `nbr_raw`(+0.1·L_neighbor, raw 선택, = exp015), `nbr_bgrl`(λ 1.0, BGRL 선택, = exp016), HW02·HW03a의 `hsan_*`·`cos_t*`·`nbr_raw_{contrast,random}`·`nbr_bgrl_l01*`.
+- 주요 arm: `naq_base`(L_original만), `nbr_raw`(+0.1·L_neighbor, raw 선택, = exp015), `nbr_bgrl`(λ 1.0, BGRL 선택, = exp016), HW02·HW03a의 `hsan_*`·`cos_t*`·`nbr_raw_{contrast,random}`·`nbr_bgrl_l01*`, HW06·HW07의 `e4k_*`, HW08의 `l2_*`.
 - 이웃 선택 키
   - `selector ∈ {raw, bgrl}`: `max`/`contrast`에서 쓰는 임베딩 공간.
   - `pick ∈ {max, contrast, random, sup_cos}` (기본 `max`):
@@ -106,14 +110,22 @@ NAQ/
 - `geom_diag` (기본 false, HW05): 500 기준 best checkpoint에서 고정 표본 4096 노드(전용 Generator seed 2026)의 z로 평균 노름, 노름 표준편차, 평균 쌍 거리, uniformity(log mean exp(−2‖û−v̂‖²), L2 정규화), effective rank(중심화 표본 특이값 분포의 엔트로피 지수)를 `metrics.json`의 `geom`에 기록한다. HW06부터 `corr_offdiag_mean`(표본 z의 차원 간 Pearson 상관 행렬에서 비대각 |상관|의 평균)과 `dim`을 추가.
 - `episodes` (기본 2000): arm에서 재정의할 수 있다. `eval_every`는 그대로.
 - `valid_tasks ∈ {50, 500}` (기본 50, HW03b): 500이면 validation 500 캐시로 매 평가 시점에 500개 정확도와 앞 50개 정확도를 함께 기록하고, best epoch을 두 기준으로 각각 골라 test를 각 checkpoint에서 잰다. 주 결과 `test_acc` = 500 기준, 측정용 `test_acc_at_best50` = 50 기준.
+- `eval_l2` (기본 false, HW08): true이면 기존 기록에 l2 평가(§5)를 더한다. 기존 키의 값과 뜻은 그대로다.
+  - 매 평가 시점 `epochs[i].val_acc_500_l2`, `val_acc_50_l2`.
+  - l2 validation 500 기준 best checkpoint를 따로 추적한다(`best_l2`, `best_epoch_500_l2`, `same_epoch_l2`).
+  - test 네 값: `test_acc`(raw 선택·raw 평가, 기존), `test_acc_l2_at_bestraw`(raw 선택·l2 평가), `test_acc_l2`(l2 선택·l2 평가), `test_acc_raw_at_bestl2`(l2 선택·raw 평가).
+  - `geom_diag`가 true이면 l2 기준 best에서의 진단을 `geom_l2`에 기록한다.
+  - 노름 진단 `norm_diag`(raw 기준 best)·`norm_diag_l2`(l2 기준 best): `zero_rows_all`, `zero_rows_test`, `test_norm_mean`, `test_norm_std`, `proto_norm_cv`. 레이블 불필요.
+- `save_best` (기본 false, HW08): true이면 `ckpt/hw_iislab4/<arm>/<ds>/seed<S>/best_raw.pt`(state_dict, epoch)를 저장하고, `eval_l2`가 true이며 두 best의 epoch이 다르면 `best_l2.pt`도 저장한다. 경로와 바이트 수를 `metrics.json`의 `ckpt`에 기록한다.
 - `hsan` 블록은 HW02·HW03a 기록용으로 남긴다. **새 HSAN arm을 만들지 않는다**(§9 종결).
 
 ### 4.3 결과 저장과 집계
 - 학습 run: `<결과 루트>/<arm>/<ds>/seed<S>/{metrics.json, train.log}`. 결과 루트는 `HW_RESULTS_ROOT`(기본 `results/hw`). **iislab4는 항상 `HW_RESULTS_ROOT=results/hw_iislab4`.**
 - 학습 없는 결정적 측정: `results/measure/`. 서버 간 비교 규칙의 대상이 아니다.
-- `hw/summarize.py`: `summary.{csv,md}`, `--ref <arm>`마다 `paired_<ref>.md`(같은 seed 짝지은 Δ 평균 ± 표준편차, 양수 seed k/n). `--metric <key>`(기본 `test_acc`)로 다른 지표를 집계하면 파일 이름에 `_<key>` 접미사를 붙인다.
+- `hw/summarize.py`: `summary.{csv,md}`, `--ref <arm>`마다 `paired_<ref>.md`(같은 seed 짝지은 Δ 평균 ± 표준편차, 양수 seed k/n). `--metric <key>`(기본 `test_acc`)로 다른 지표를 집계하면 파일 이름에 `_<key>` 접미사를 붙인다. 그 지표가 없는 run은 그 집계에서 뺀다.
+- **같은 지표끼리만 짝짓는다.** raw 값과 l2 값, 선택 기준이 다른 값을 서로 빼지 않는다. 예외는 같은 run 안에서 평가 방식의 차이를 재는 표(보고서에 따로 명시)뿐이다.
 - **validation 기준이 다른 run끼리는 짝짓지 않는다** (`valid_tasks` 50 run과 500 run).
-- **복제 run**: 같은 설정을 같은 서버에서 다시 돌릴 때는 arm 이름에 `_r2`를 붙인다(예: `v500_naq_base_r2`). 원본과의 seed별 |Δ|는 같은 서버 안 복제 잡음의 추정치로 보고서에 적는다.
+- **복제 run**: 같은 설정을 같은 서버에서 다시 돌릴 때는 arm 이름에 `_r2`를 붙인다(예: `v500_naq_base_r2`). 원본과의 seed별 |Δ|는 같은 서버 안 복제 잡음의 추정치로 보고서에 적는다. HW08의 `l2_*`는 대응 `e4k_*`와 학습 설정이 같고 기록만 더한 arm이므로, raw `test_acc`의 seed별 차이를 복제 잡음으로 함께 보고한다.
 - **짝지은 비교는 한 결과 루트 안에서만 한다.** 서버 간 seed 하나 차이가 최대 0.92(HW03-prep).
 - **붕괴 표시**: best epoch의 validation 정확도 ≤ 25% → `collapsed=1`, `summary.md` 셀에 `[c=k]`. 집계에는 포함.
 
@@ -125,7 +137,13 @@ NAQ/
 
 - 학습 손실과 선택에 어떤 레이블도 쓰지 않는다. valid/test 레이블은 평가에만.
 - **측정 전용 레이블 사용 허용**: GT 레이블을 `torch.no_grad()` 진단(순도 등)에만 쓸 수 있다. 진단값은 손실·선택·체크포인트 선택에 들어가지 않는다. 코드에 `# measurement-only label use` 주석.
-- 프로토콜 고정: 학습 5-way 1-shot NaQ-Feat Top-10 pseudo-query, 평가 5-way 5-shot ProtoNet(유클리드), test 500 tasks. 인코더 2-layer GCN, 그래프 증강 없음.
+- 프로토콜 고정: 학습 5-way 1-shot NaQ-Feat Top-10 pseudo-query, 평가 5-way 5-shot ProtoNet, test 500 tasks. 인코더 2-layer GCN, 그래프 증강 없음.
+- **평가 방식 두 가지 (개정 10)**
+  - **raw**: `hw.evaluate.evaluate`. 인코더 출력(마지막 층 ReLU 뒤, 정규화 없음)을 그대로 쓴다. 프로토타입 = support 평균, 거리 = 제곱 유클리드, argmin. HW02–HW07의 모든 값과 best epoch 선택이 이 방식이다.
+  - **l2**: `hw.evaluate.evaluate_l2`. 임베딩을 행 단위로 L2 정규화한 뒤 같은 `evaluate`를 쓴다. `hw/trainfree.py`의 "L2" 행과 같은 정규화다.
+  - 학습 없는 기준선의 Â²X 80.12 / 92.72는 **l2** 값이고, raw 값은 67.57 / 83.03이다(HW03a_seio §2.5).
+  - `eval_l2: true`인 arm은 두 방식을 모두 기록한다. 보고서는 네 값(§4.2)을 한 표에 나란히 적고, 어느 것을 주 결과로 삼을지는 사람이 정한다. 정해지기 전까지 `test_acc`(raw)의 뜻은 바뀌지 않는다.
+  - 학습 arm과 학습 없는 기준선을 한 표에 둘 때는 같은 평가 방식의 값끼리 놓는다.
 - validation: HW04a까지는 50 tasks. HW03b부터 `valid_tasks: 500` arm은 500 기준 best epoch의 test가 주 결과다. 50 기준 checkpoint의 test는 **측정용 예외**로 함께 잰다(선택 잡음 측정). 보고서에는 주 결과를 먼저, 측정용 값은 따로 적는다.
 
 ## 6. 작업 흐름
@@ -150,7 +168,7 @@ NAQ/
 
 ### 7.1 형식
 1. 결론 (3줄 이내, 숫자로) 2. 핵심 표 3. 게이트·사전 등록 대조표 4. 수행 내용 (커밋 해시) 5. 판단한 사항 6. 제외·실패·붕괴 run 7. 소요 시간, 환경, HEAD
-- 표마다 값의 종류(정확도, 노드 macro 순도, edge 비율, 에피소드 쌍 비율 등)와 정의를 적는다(HW04m-c2 방식).
+- 표마다 값의 종류(정확도, 노드 macro 순도, edge 비율, 에피소드 쌍 비율 등)와 정의를 적는다(HW04m-c2 방식). 정확도 표에는 평가 방식(raw / l2)과 checkpoint 선택 기준을 열 이름에 적는다.
 
 ### 7.2 금지 (사실만)
 - 해석·평가 어휘 금지: "효과적", "개선", "유의미", "시사한다", "보인다", "성공", "좋다/나쁘다", "기대", "아마".
@@ -170,21 +188,24 @@ NAQ/
 | HWP041–048 | HW03b_iislab4 | 완료 (충족 041·043·045·048) |
 | HWP049–058 | HW05_iislab4 | 완료 (충족 049–051·053–055·057) |
 | HWP059–069 | HW06_iislab4 | 완료 (충족 059–061·063·064·066·068·069) |
-| HWP070–078 | HW07_iislab4 | 배정 |
-| HWP079– | 다음 | 미배정 |
+| HWP070–078 | HW07_iislab4 | 완료 (대조표는 `reports/HW07_iislab4.md`) |
+| HWP079–087 | HW08_iislab4 | 배정 |
+| HWP088– | 다음 | 미배정 |
 
 ## 9. 현재 상태와 계획
 
 - **HW01** (hw01): 구조 개편, 러너 이식(스크립트 대비 |Δ| ≤ 0.07).
 - **HW02** (hw02): 아이디어 1 유지 — `nbr_raw − naq_base` +0.20/+0.35 (Amazon/Cora, seio 5 seed). iislab4 10 seed +0.33/+0.27 계열.
-- **HW03a** (hw03a): cos-HSAN 전 τ에서 `nbr_raw` 아래(−3 ~ −20). `pick` contrast/random은 `nbr_raw`와 차이 ±0.15 이내. BGRL λ 1.0은 Cora +0.76이나 λ 맞춘 BGRL은 raw와 같음. 이웃 순도 0.63–0.66, NaQ query 순도 0.35/0.60. Â²X(L2) train-free 80.12/92.72.
+- **HW03a** (hw03a): cos-HSAN 전 τ에서 `nbr_raw` 아래(−3 ~ −20). `pick` contrast/random은 `nbr_raw`와 차이 ±0.15 이내. BGRL λ 1.0은 Cora +0.76이나 λ 맞춘 BGRL은 raw와 같음. 이웃 순도 0.63–0.66, NaQ query 순도 0.35/0.60. Â²X train-free: L2 80.12/92.72, 정규화 없음 67.57/83.03.
 - **HW04m** (hw04m): 학습 없는 측정(`results/measure/`). hop1 0.586/0.621 → hop2 0.422/0.529, 그러나 hop2 안 support와 Â²X cos 1위 0.615/0.709. PPR 구간은 hop1보다 낮음. `jl > 0` edge 0.738/0.753(coverage 20–25%). query 순도는 support 차수 하위 0.29/0.55 vs 상위 0.42/0.68.
 - **HW04a** (hw04a): `sup_cos` 3 arm(h2 Â²X, h2 raw, h1 Â²X) 모두 `nbr_raw` 대비 −0.17 ~ +0.08, `naq_base` 대비 +0.15 ~ +0.35. 학습 중 순도는 측정값을 따름(h2 0.61–0.74). raw 2-hop 양성의 58% / 75%가 이미 그 support의 pseudo-query. λ 0.1에서 이웃 선택 방식 전체(max, contrast, random, BGRL, sup_cos)가 `nbr_raw` ±0.17 안.
 - **HW03b** (hw03b, validation 500): `self`(양성 = support) = `naq_base`(|Δ| ≤ 0.04). **무작위 양성(순도 0.02)이 모든 λ·두 ds에서 이웃 양성보다 높음**: λ 0.3 `grand − naq` +1.80 / +0.95 (10/10), `raw − grand` −0.94 / −0.48. `raw`는 λ 단조 증가(λ 1.0 Cora +1.46). validation 500은 `self`–`naq` 쌍 sd 0.04 vs 0.35. best epoch 다수 2000. Dirichlet 에너지(식 13) ≈ 단어 빈도(ρ 0.95 / 0.81).
 - **종결 (재개하지 않는다)**: `euclid_gradscale`; HSAN 가중(W) 전 형태; cos τ 실험(결정 2); BGRL 실험(결정 3); **양성 선택 정교화**(1-hop/2-hop·기준·공간·순도 — HW03a·HW04a·HW03b: 모두 ±0.17 안이거나 무작위보다 낮음); SPGCL EAP 이식(에너지 = 빈도 문제 미해결); 아이디어 A(이웃 겹침 anchor 병합, HW05 측정); 특징 근접 top-k hard negative(HW05).
 - **HW05** (hw05): 무작위 양성 이득의 기제 = **추가 음성**. L_original 분모에 무작위 음성 m 20: +1.62 / +0.80, m 5: +1.16 / +0.54 (10/10). pull만 −6.69 / −0.46, push만 −3.79 / −11.22. raw cos 상위 20 음성은 FN rate 0.30 / 0.54, 무작위 음성 대비 −7.63 / −7.85(Â²X 상위는 −43.71 / −12.65). 4000 episode: naq +0.92 / +0.55, grand +0.63 / +0.39. 이웃 항 λ1.0 + 무작위 20: +2.10 / +0.87. 아이디어 A: Jaccard θ0.3 병합 정밀도 0.55 / 0.65(1-hop 순도 수준), 같은 클래스 쌍의 90–93%는 공통 이웃 0.
 - **HW06** (hw06, 4000 episode): `naq` 78.69 / 91.38. 무작위 m 20 / 50 / 100 / 200: +1.15 / +1.31 / +1.39 / +1.50 (Cora), +0.61 / +0.70 / +0.66 / +0.66 (Amazon). m 20 전략 `− rand_m20`: cluster +0.39 (10/10) / +0.00, far +0.07 / −0.05, band −1.04 / −8.44(FN 0.099 / 0.262). query 음성만 +0.33 / +0.19, query 음성 + 무작위 20은 무작위 20보다 −0.19 / −0.14, query 양성 추가 −2.94 / −2.77. 차원 |상관|은 음성 m이 클수록 감소, band가 가장 낮음(0.114 / 0.083).
-- **진행**: HW07 — cluster 효과 검증(무작위 군집 대조, k-means seed, anchor 군집, m 100/200), far m 200·far_strong, 제외 집합 측정.
+- **HW07** (hw07, 4000 episode): Cora m 20에서 `− rand_m20`: q의 군집 제외 +0.39, q와 무관한 군집 제외 +0.01, 다른 k-means seed +0.31, 양성 support의 군집 제외 +0.03. 같은 m의 무작위 대비 cluster: m 100 +0.43 (9/10) / −0.18, m 200 +0.39 (10/10) / −0.31 (0/10). far m 200 +0.09 / −0.31, far_strong m 200 +0.11 / +0.00. 무작위 m 20 중 q의 군집에 떨어지는 음성은 query당 평균 0.31개, 그중 같은 클래스 0.09개. `clus_m200` 80.58 / 91.73.
+- **평가 방식 확인 (2026-11-11)**: HW02–HW07의 학습 arm 값과 best epoch 선택은 모두 raw 평가다(`hw/run.py:461–463, 506–507, 520–521`, `hw/evaluate.py:17–23`). 체크포인트는 저장하지 않았다.
+- **진행**: HW08 — 핵심 5 arm(`naq`, 무작위 m 20/50/200, cluster m 20)을 raw·l2 두 평가로 재실행, best checkpoint 저장, 학습 없는 기준선을 iislab4에서 재측정.
 - **보류**: band(semi-hard) — 고정 raw 순위 기준은 FN에 따라 손해. 섞어 쓰기·학습 임베딩 기준 동적 어려움은 큰 그림 ②에서 다시 검토.
-- **대기**: 이긴 전략의 최적 m 재확인, 큰 그림 ②(HSAN식 강도 조절 — 가까운 음성 = FN 위험이라는 HW05 결과를 반영해 설계), 전역 손실, VISION 동일 프로토콜 기준선.
+- **대기 (HW08 결과를 본 뒤 사람이 정한다)**: 다른 데이터셋(dblp, Amazon_electronics)으로 확장, 1-shot 평가 추가, 에피소드를 넘는 전역 contrast 항, VISION 동일 프로토콜 기준선, 큰 그림 ②(HSAN식 강도 조절).
 - 석휘 표 1 (석휘 서버, seed 1212): exp001 77.72/90.48; exp012 78.55/90.70; exp015 79.00/90.72; exp016 79.52/91.21 (Cora_full/Amazon_clothing).

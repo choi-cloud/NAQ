@@ -1,0 +1,253 @@
+{
+  "G-cfg": {
+    "pass": true,
+    "arms": {
+      "l2_naq": {
+        "ref": "e4k_naq",
+        "equal": true,
+        "diff_keys": []
+      },
+      "l2_rand_m20": {
+        "ref": "e4k_rand_m20",
+        "equal": true,
+        "diff_keys": []
+      },
+      "l2_rand_m50": {
+        "ref": "e4k_rand_m50",
+        "equal": true,
+        "diff_keys": []
+      },
+      "l2_rand_m200": {
+        "ref": "e4k_rand_m200",
+        "equal": true,
+        "diff_keys": []
+      },
+      "l2_clus_m20": {
+        "ref": "e4k_clus_m20",
+        "equal": true,
+        "diff_keys": []
+      }
+    }
+  },
+  "G-l2": {
+    "pass": true,
+    "datasets": {
+      "Cora_full": {
+        "evaluate_l2_a2x_test": 80.12000133991242,
+        "trainfree_a2x_l2_test": 80.12000133991242,
+        "abs_diff": 0.0,
+        "pass": true
+      },
+      "Amazon_clothing": {
+        "evaluate_l2_a2x_test": 92.71500096321105,
+        "trainfree_a2x_l2_test": 92.71500096321105,
+        "abs_diff": 0.0,
+        "pass": true
+      }
+    }
+  },
+  "G-tf": {
+    "pass": true,
+    "datasets": {
+      "Cora_full": {
+        "A2X_l2": {
+          "value": 80.12000133991242,
+          "expected": 80.12,
+          "abs_diff": 1.3399124156876496e-06,
+          "pass": true
+        },
+        "A2X_raw": {
+          "value": 67.57000123858452,
+          "expected": 67.57,
+          "abs_diff": 1.2385845309381693e-06,
+          "pass": true
+        }
+      },
+      "Amazon_clothing": {
+        "A2X_l2": {
+          "value": 92.71500096321105,
+          "expected": 92.72,
+          "abs_diff": 0.004999036788944977,
+          "pass": true
+        },
+        "A2X_raw": {
+          "value": 83.02500106096268,
+          "expected": 83.03,
+          "abs_diff": 0.004998939037321293,
+          "pass": true
+        }
+      }
+    }
+  },
+  "regress": {
+    "pass": true,
+    "runs": {
+      "naq_base/Cora_full": {
+        "new": 77.85500131845474,
+        "existing": 77.95500127077104,
+        "delta": -0.09999995231629555,
+        "best_epoch_new": 2000,
+        "best_epoch_existing": 1760,
+        "status": "completed",
+        "metrics_keys_same_as_HW07_regress": true,
+        "pass": true
+      },
+      "naq_base/Amazon_clothing": {
+        "new": 90.61500101685523,
+        "existing": 90.60000106096268,
+        "delta": 0.014999955892548655,
+        "best_epoch_new": 1600,
+        "best_epoch_existing": 1600,
+        "status": "completed",
+        "metrics_keys_same_as_HW07_regress": true,
+        "pass": true
+      },
+      "nbr_raw/Cora_full": {
+        "new": 78.04000126719475,
+        "existing": 78.1450012922287,
+        "delta": -0.10500002503394512,
+        "best_epoch_new": 2000,
+        "best_epoch_existing": 2000,
+        "status": "completed",
+        "metrics_keys_same_as_HW07_regress": true,
+        "pass": true
+      },
+      "nbr_raw/Amazon_clothing": {
+        "new": 90.90500099062919,
+        "existing": 90.88500108122825,
+        "delta": 0.0199999094009371,
+        "best_epoch_new": 1280,
+        "best_epoch_existing": 1280,
+        "status": "completed",
+        "metrics_keys_same_as_HW07_regress": true,
+        "pass": true
+      }
+    }
+  },
+  "invariant": {
+    "pass": true,
+    "detail": {
+      "start_head": "67c974695399431ca581337f61b067256e12cb5a",
+      "frozen_files": [
+        "hw/losses.py",
+        "hw/negatives.py",
+        "hw/neighbors.py",
+        "hw/episodes.py"
+      ],
+      "frozen_diff_empty": true,
+      "deleted_lines": {
+        "hw/run.py": [
+          "Outputs $HW_RESULTS_ROOT (default results/hw)/<arm>/<ds>/seed<S>/{metrics.json, train.log}. No checkpoints."
+        ],
+        "hw/evaluate.py": []
+      },
+      "deleted_line_counts": {
+        "hw/run.py": 1,
+        "hw/evaluate.py": 0
+      }
+    }
+  },
+  "smoke": {
+    "pass": true,
+    "runs": {
+      "l2_naq": {
+        "status": "completed",
+        "missing": [],
+        "ckpt": {
+          "best_raw": "/tmp/hw_smoke/ckpt/l2_naq/Cora_full/seed1212/best_raw.pt",
+          "best_l2": null,
+          "bytes": 18367448
+        },
+        "files": {
+          "/tmp/hw_smoke/ckpt/l2_naq/Cora_full/seed1212/best_raw.pt": 18367448
+        },
+        "bytes_match": true,
+        "same_epoch_l2": true,
+        "best_l2_file_rule": true,
+        "pass": true
+      },
+      "l2_rand_m20": {
+        "status": "completed",
+        "missing": [],
+        "ckpt": {
+          "best_raw": "/tmp/hw_smoke/ckpt/l2_rand_m20/Cora_full/seed1212/best_raw.pt",
+          "best_l2": null,
+          "bytes": 18367448
+        },
+        "files": {
+          "/tmp/hw_smoke/ckpt/l2_rand_m20/Cora_full/seed1212/best_raw.pt": 18367448
+        },
+        "bytes_match": true,
+        "same_epoch_l2": true,
+        "best_l2_file_rule": true,
+        "pass": true
+      },
+      "l2_clus_m20": {
+        "status": "completed",
+        "missing": [],
+        "ckpt": {
+          "best_raw": "/tmp/hw_smoke/ckpt/l2_clus_m20/Cora_full/seed1212/best_raw.pt",
+          "best_l2": null,
+          "bytes": 18367448
+        },
+        "files": {
+          "/tmp/hw_smoke/ckpt/l2_clus_m20/Cora_full/seed1212/best_raw.pt": 18367448
+        },
+        "bytes_match": true,
+        "same_epoch_l2": true,
+        "best_l2_file_rule": true,
+        "pass": true
+      },
+      "forced_different_epoch_l2_naq": {
+        "status": "completed",
+        "best_epoch_500": 4,
+        "best_epoch_500_l2": 1,
+        "same_epoch_l2": false,
+        "ckpt": {
+          "best_raw": "/tmp/hw_smoke/forced/ckpt/l2_naq/Cora_full/seed1212/best_raw.pt",
+          "best_l2": "/tmp/hw_smoke/forced/ckpt/l2_naq/Cora_full/seed1212/best_l2.pt",
+          "bytes": 36734696
+        },
+        "files": {
+          "/tmp/hw_smoke/forced/ckpt/l2_naq/Cora_full/seed1212/best_raw.pt": 18367448,
+          "/tmp/hw_smoke/forced/ckpt/l2_naq/Cora_full/seed1212/best_l2.pt": 18367248
+        },
+        "bytes_match": true,
+        "geom_l2_present": true,
+        "reload": {
+          "best_raw": {
+            "epoch": 4,
+            "recomputed": 0.5491000097990036,
+            "recorded": 0.5491000097990036,
+            "abs_diff": 0.0
+          },
+          "best_l2": {
+            "epoch": 1,
+            "recomputed": 0.6641500107645989,
+            "recorded": 0.6641500107645989,
+            "abs_diff": 0.0
+          }
+        },
+        "raw_test_equals_unforced": true,
+        "pass": true
+      }
+    }
+  },
+  "state_dict_size": {
+    "Cora_full": {
+      "feature_dim": 8710,
+      "latent": 256,
+      "params": 4591360,
+      "tensors": 4,
+      "bytes_saved": 18367248
+    },
+    "Amazon_clothing": {
+      "feature_dim": 9034,
+      "latent": 256,
+      "params": 4757248,
+      "tensors": 4,
+      "bytes_saved": 19030800
+    }
+  },
+  "all_pass": true
+}

@@ -7,6 +7,7 @@ import math
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 @torch.no_grad()
@@ -37,3 +38,10 @@ def evaluate(embeddings, task_pool, n_way, device):
         "n_way": n_way,
         "k_shot": int(task_pool[0][0].size // n_way),
     }
+
+
+@torch.no_grad()
+def evaluate_l2(embeddings, task_pool, n_way, device):
+    """HW08 l2 evaluation: L2 row normalization (same expression as hw/trainfree.py
+    `F.normalize(feat, p=2, dim=1)`, eps 1e-12), then the unchanged `evaluate`."""
+    return evaluate(F.normalize(embeddings, p=2, dim=1, eps=1e-12), task_pool, n_way, device)

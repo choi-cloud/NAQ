@@ -3,7 +3,8 @@
     python -m hw.run --arm <arm> --dataset <ds> [--seed S] [--device D]
 
 Training loop transcribed from choi_exps/zip_20261107/exp015.py / exp016.py main().
-Outputs $HW_RESULTS_ROOT (default results/hw)/<arm>/<ds>/seed<S>/{metrics.json, train.log}. No checkpoints.
+Outputs $HW_RESULTS_ROOT (default results/hw)/<arm>/<ds>/seed<S>/{metrics.json, train.log}.
+Checkpoints only with save_best (HW08): $HW_CKPT_ROOT (default ckpt/<results root name>)/<arm>/<ds>/seed<S>/.
 """
 
 import argparse
@@ -28,6 +29,7 @@ from utils import seed_everything
 from hw.config import DEFAULT_CONFIG, build_args, load_config
 from hw.episodes import build_eval_pools, build_train_pool
 from hw.evaluate import evaluate
+from hw.evaluate import evaluate_l2  # HW08
 from hw.losses import episode_loss
 from hw.negatives import EXTRA_NEG_MODES, NBR_TERMS, ExtraNegatives
 from hw.negatives import STRATEGY_MODES, StrategyNegatives  # HW06
@@ -37,6 +39,8 @@ from hw.neighbors import ALL_PICKS, SUP_COS, build_neighbor_lookup, build_sup_co
 from hw.weights import DIAG_KEYS
 
 RESULTS_ROOT = Path(os.environ.get("HW_RESULTS_ROOT", "results/hw"))
+CKPT_ROOT = Path(os.environ.get("HW_CKPT_ROOT", str(Path("ckpt") / RESULTS_ROOT.name)))  # HW08 save_best (git-ignored)
+ZERO_NORM = 1e-12  # HW08 norm_diag: a row with ||z|| < ZERO_NORM counts as a zero row
 FIRST_EPISODES_LOGGED = 5
 NBR_DIAG_KEYS = (
     "nbr_eq_support", "nbr_eq_query", "query_eq_support", "pos_nbr_cos_raw", "fallback_frac", "multi_nbr_frac",
@@ -211,6 +215,34 @@ def qep_diagnostics(labels, raw_normalized, id_query, qep_out):
     return out
 
 
+@torch.no_grad()
+def norm_diagnostics(embeddings, task_pool, n_way):
+    """HW08 norm_diag (no RNG): zero rows (||z|| < ZERO_NORM) over all nodes and over the nodes that appear in
+    the test tasks, mean / std (ddof=0) of ||z|| over those test nodes, and per test task the coefficient of
+    variation std/mean (ddof=0) of the n_way prototype norms (support means, before any normalization),
+    averaged over the tasks."""
+    norms = embeddings.norm(dim=1)
+    ids = torch.unique(torch.cat([torch.as_tensor(np.asarray(t[i]).ravel(), dtype=torch.long) for t in task_pool for i in (0, 2)])).to(embeddings.device)
+    test_norms = norms[ids]
+    cvs = []
+    for id_spt, y_spt, _, _ in task_pool:
+        supports = embeddings[id_spt]
+        labels_s = y_spt.to(embeddings.device)  # measurement-only label use (same grouping as hw.evaluate.evaluate)
+        proto_norms = torch.stack([supports[labels_s == cls].mean(dim=0) for cls in range(n_way)]).norm(dim=1)
+        mean = float(proto_norms.mean())
+        cvs.append(float(proto_norms.std(unbiased=False)) / mean if mean > 0 else float("nan"))
+    cvs = np.asarray(cvs, dtype=np.float64)
+    return {
+        "zero_rows_all": int((norms < ZERO_NORM).sum()),
+        "zero_rows_test": int((test_norms < ZERO_NORM).sum()),
+        "test_nodes": int(ids.numel()),
+        "test_norm_mean": float(test_norms.mean()),
+        "test_norm_std": float(test_norms.std(unbiased=False)),
+        "proto_norm_cv": float(np.nanmean(cvs)) if np.isfinite(cvs).any() else None,
+        "proto_norm_cv_undefined_tasks": int((~np.isfinite(cvs)).sum()),
+    }
+
+
 def parse_cli():
     parser = argparse.ArgumentParser(description="HW track runner")
     parser.add_argument("--arm", required=True)
@@ -261,6 +293,10 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
     if extra_neg_cfg.get("mode", "none") not in EXTRA_NEG_MODES:
         raise ValueError(f"extra_neg.mode must be one of {EXTRA_NEG_MODES}")
     geom_diag = bool(cfg.get("geom_diag", False))
+    eval_l2 = bool(cfg.get("eval_l2", False))  # HW08: adds l2 evaluation records; raw records unchanged
+    save_best = bool(cfg.get("save_best", False))  # HW08: best checkpoints under CKPT_ROOT
+    if eval_l2 and not v500:
+        raise ValueError("eval_l2 requires valid_tasks 500")
     ep_query_neg = bool(cfg.get("ep_query_neg", False))  # HW06
     ep_query_pos = bool(cfg.get("ep_query_pos", False))
     if ep_query_pos and not ep_query_neg:
@@ -376,6 +412,7 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
 
         best_validation = -float("inf")
         best_state = None
+        best_validation_l2, best_state_l2 = -float("inf"), None  # HW08 (eval_l2)
         losses, accuracies, original_losses, neighbor_losses, neighbor_counts, valid_fractions = [], [], [], [], [], []
         hsan_buffers = {key: [] for key in hsan_diag_keys}
         nbr_buffers = {key: [] for key in NBR_DIAG_KEYS}
@@ -461,6 +498,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 clean = model.network(features, adj=data.adj)
                 validation = evaluate(clean, valid_pool, args.n_way, device)
                 validation_50 = evaluate(clean, valid_pool[:NUM_EXISTING], args.n_way, device) if v500 else None
+                if eval_l2:  # HW08: same embeddings, L2-row-normalized evaluation
+                    validation_l2 = evaluate_l2(clean, valid_pool, args.n_way, device)
+                    validation_50_l2 = evaluate_l2(clean, valid_pool[:NUM_EXISTING], args.n_way, device)
             record = {
                 "epoch": epoch,
                 "train_loss_mean": float(np.mean(losses)),
@@ -481,6 +521,8 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 values.clear()
             if v500:
                 record.update(val_acc_500=validation["accuracy_mean"], val_acc_50=validation_50["accuracy_mean"], validation_50=validation_50)
+            if eval_l2:  # HW08
+                record.update(val_acc_500_l2=validation_l2["accuracy_mean"], val_acc_50_l2=validation_50_l2["accuracy_mean"])
             result["epochs"].append(record)
             print(
                 f"[Epoch {epoch:5d}] loss={record['train_loss_mean']:.4f} "
@@ -498,6 +540,10 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 best_validation_50 = validation_50["accuracy_mean"]
                 best_state_50 = {key: value.detach().cpu().clone() for key, value in model.network.state_dict().items()}
                 result["best_50"] = {"epoch": epoch, "validation": validation_50}
+            if eval_l2 and validation_l2["accuracy_mean"] > best_validation_l2:  # HW08: same rule as the 500-based raw best
+                best_validation_l2 = validation_l2["accuracy_mean"]
+                best_state_l2 = deepcopy(model.network.state_dict())
+                result["best_l2"] = {"epoch": epoch, "validation": validation_l2}
             save_json(json_path, result)
 
         model.network.load_state_dict(best_state)
@@ -505,6 +551,9 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
         with torch.no_grad():
             clean = model.network(features, adj=data.adj)
             testing = evaluate(clean, test_pool, args.n_way, device)
+            if eval_l2:  # HW08: raw-selected checkpoint, l2 evaluation and norm diagnostics
+                testing_l2_at_raw = evaluate_l2(clean, test_pool, args.n_way, device)
+                result["norm_diag"] = norm_diagnostics(clean, test_pool, args.n_way)
         result["best"]["test"] = testing
         if geom_diag:  # HW05: geometry of the 500-based (main) best checkpoint
             result["geom"] = geometry(clean)
@@ -528,6 +577,46 @@ def run(arm, dataset, seed=None, device_index=None, config_path=DEFAULT_CONFIG):
                 best_epoch_50=result["best_50"]["epoch"],
                 same_epoch=bool(same_epoch),
             )
+        if eval_l2:  # HW08: l2-selected checkpoint; same epoch as the raw best -> values copied
+            same_epoch_l2 = result["best_l2"]["epoch"] == result["best"]["epoch"]
+            if same_epoch_l2:
+                testing_l2, testing_raw_at_l2 = testing_l2_at_raw, testing
+                if geom_diag:
+                    result["geom_l2"] = dict(result["geom"])
+                result["norm_diag_l2"] = dict(result["norm_diag"])
+            else:
+                model.network.load_state_dict(best_state_l2)
+                model.eval()
+                with torch.no_grad():
+                    clean = model.network(features, adj=data.adj)
+                    testing_l2 = evaluate_l2(clean, test_pool, args.n_way, device)
+                    testing_raw_at_l2 = evaluate(clean, test_pool, args.n_way, device)
+                    if geom_diag:
+                        result["geom_l2"] = geometry(clean)
+                        result["geom_l2"].update(geometry_corr(clean))
+                    result["norm_diag_l2"] = norm_diagnostics(clean, test_pool, args.n_way)
+            result["best_l2"]["test"] = testing_l2
+            result.update(
+                test_acc_l2_at_bestraw=testing_l2_at_raw["accuracy_mean"],
+                test_acc_l2=testing_l2["accuracy_mean"],
+                test_acc_raw_at_bestl2=testing_raw_at_l2["accuracy_mean"],
+                best_epoch_500_l2=result["best_l2"]["epoch"],
+                same_epoch_l2=bool(same_epoch_l2),
+            )
+        if save_best:  # HW08: checkpoints outside git
+            ckpt_dir = CKPT_ROOT / arm / dataset / f"seed{seed}"
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            raw_path = ckpt_dir / "best_raw.pt"
+            torch.save({"state_dict": {k: v.detach().cpu() for k, v in best_state.items()}, "epoch": result["best"]["epoch"]}, raw_path)
+            l2_path = None
+            if eval_l2 and not result["same_epoch_l2"]:
+                l2_path = ckpt_dir / "best_l2.pt"
+                torch.save({"state_dict": {k: v.detach().cpu() for k, v in best_state_l2.items()}, "epoch": result["best_l2"]["epoch"]}, l2_path)
+            result["ckpt"] = {
+                "best_raw": str(raw_path),
+                "best_l2": str(l2_path) if l2_path is not None else None,
+                "bytes": int(raw_path.stat().st_size + (l2_path.stat().st_size if l2_path is not None else 0)),
+            }
         result["status"] = "completed"
         result["elapsed_seconds"] = round(time.time() - started, 2)
         save_json(json_path, result)
